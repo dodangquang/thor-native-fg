@@ -31,7 +31,7 @@ public class MainActivity extends Activity {
         LinearLayout page=new LinearLayout(this);page.setOrientation(1);page.setPadding(36,28,36,24);page.setBackgroundColor(Color.rgb(12,20,33));
         ScrollView scroll=new ScrollView(this);scroll.addView(page);setContentView(scroll);
         TextView title=text("THOR NATIVE FG",26);title.setTextColor(Color.rgb(87,222,212));page.addView(title);
-        page.addView(text("Frame gen độc lập + GSR 1 • Bản thử nghiệm 0.6",16));
+        page.addView(text("Frame gen độc lập + GSR 1 • Bản thử nghiệm 0.7",16));
         page.addView(text("Không phải NVIDIA DLSS. Chưa xác nhận tương thích mọi giả lập hay tăng FPS thực tế. Layer hỗ trợ thử nghiệm Vulkan FIFO, SDR RGBA/BGRA8; OpenGL ES và driver nạp riêng có thể không đi qua layer.",15));
         page.addView(text("Engine FG thuộc Thor Native FG. Khi thử, tắt FG tích hợp trong giả lập để tránh nội suy hai lần. GSR 1 xử lý ảnh render thấp khi đường hiển thị Vulkan phù hợp; hãy đặt độ phân giải thấp trong game/giả lập. Chỉ báo ON khi có pass upscale được gửi thật.",15));
         button(page,"Chạy cảnh mẫu Vulkan · GSR 1 + FG 2x",()->startActivity(new Intent(this,DemoActivity.class)));

@@ -39,6 +39,18 @@ The requested equivalent function/quality remains the target; names and claims
 must accurately distinguish neural/temporal/spatial SR and measured results.
 
 Current verified baseline and gaps:
+- Version0.7 fixes source-cadence misclassification under alternating arrivals;
+  bursty90/120FPS no longer activates2x in validated fixtures.22timing tests pass.
+  It adds API-present-arrival -> returned-actual-present age, not input latency.
+  Same Castlevania menu: new policy gives median98.98/98.72displayed from
+  52.835/53.46source, but real-frame age40.30/40.04ms versus legacy32.08ms and
+  SR-only15.26ms. Pacing/slot budgeting still needs work; retain this regression
+  alongside synthetic improvements rather than claiming a universal benefit.
+- An application-owned GOOGLE timing regression is fixed by not internally
+  draining history if the application enabled the extension. A sparse-query
+  fixture now matches the native baseline; frequent queries and original IDs
+  are preserved. Present-pNext passthrough remains: this is not full timing
+  virtualization or verified FG compatibility with every Swappy path.
 - Android Vulkan layer and scoped Zygisk bootstrap run in DroidDeck0.5.0.
 - Motion remains a coarse small-window block search. Version0.2 now rejects
   cut/unreliable pairs before acquiring/presenting a generated frame, preserving
@@ -89,7 +101,13 @@ A. Extend the passing cut/fast-motion fixtures to real gameplay, HUD/occlusion,
    high-frequency detail and reliable optical flow over larger motion ranges.
 B. Evaluate a mobile neural SR model/runtime and an actual low-resolution source
    path; retain full scope rather than calling a spatial filter the end product.
-C. Replace the blocking presenter and coarse flow as measurements require.
+C. Bound the present schedule to source age and actual refresh slots. Version0.7
+   still advances lastRealDesired by twice the estimated half interval and may
+   queue into the future under jitter or low source FPS. Keep real frames current,
+   reject an intermediate frame when its slot has been missed, and verify source
+   performance, actual display gaps and frame age against the same game scene.
+   CPU return time alone cannot establish a low-latency presenter. Coarse optical
+   flow and the OpenGL ES path remain separate required implementation work.
 D. Version0.5 pins each engine binary in an immutable signed runtime APK. A
    controller-update regression was reproduced with the legacy path and passed
    with the pinned path in the same DroidDeck PID. Bootstrap0.3 bypasses a missing

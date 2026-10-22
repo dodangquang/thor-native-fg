@@ -17,6 +17,13 @@ struct Demo {
  VkSwapchainKHR swapchain{};std::vector<VkImage> images;std::vector<VkSemaphore> ready;
  VkFence fence{},workFence{};bool workPending=false;VkCommandPool pool{};VkCommandBuffer cmd{};Engine e;Image source;Pipeline scene;VkDescriptorSet sceneSet{};VkExtent2D extent{};bool sourceInitialized=false;
  VkFormat swapFormat{};VkBuffer qaBuffer{};VkDeviceMemory qaMemory{};void* qaMapped{};size_t qaFrameBytes=0;int qaChecks=0;
+ PFN_vkGetPastPresentationTimingGOOGLE appTiming{};uint32_t appPresentID=100000,appReturned=0,appUnknown=0;
+ void pollAppTiming(){
+  if(!appTiming)return;VkPastPresentationTimingGOOGLE values[128]{};uint32_t count=128;auto result=appTiming(device,swapchain,&count,values);
+  requireVk(result==VK_INCOMPLETE?VK_SUCCESS:result,"AppTimingQuery");
+  for(uint32_t n=0;n<count;n++){appReturned++;if(values[n].presentID<=100000||values[n].presentID>appPresentID)appUnknown++;}
+  if((appPresentID-100000)%8==0)LOG("APP_TIMING submitted=%u returned=%u unknown=%u",appPresentID-100000,appReturned,appUnknown);
+ }
  ~Demo(){if(device){a.DeviceWaitIdle(device);if(qaMapped)a.UnmapMemory(device,qaMemory);if(qaBuffer)a.DestroyBuffer(device,qaBuffer,nullptr);if(qaMemory)a.FreeMemory(device,qaMemory,nullptr);if(scene.pipeline)a.DestroyPipeline(device,scene.pipeline,nullptr);if(scene.layout)a.DestroyPipelineLayout(device,scene.layout,nullptr);if(scene.setLayout)a.DestroyDescriptorSetLayout(device,scene.setLayout,nullptr);if(source.view)a.DestroyImageView(device,source.view,nullptr);if(source.image)a.DestroyImage(device,source.image,nullptr);if(source.memory)a.FreeMemory(device,source.memory,nullptr);e.release();for(auto s:ready)a.DestroySemaphore(device,s,nullptr);if(fence)a.DestroyFence(device,fence,nullptr);if(workFence)a.DestroyFence(device,workFence,nullptr);if(pool)a.DestroyCommandPool(device,pool,nullptr);if(swapchain)a.DestroySwapchainKHR(device,swapchain,nullptr);a.DestroyDevice(device,nullptr);}if(surface)vkDestroySurfaceKHR(instance,surface,nullptr);if(instance)vkDestroyInstance(instance,nullptr);}
  void init(ANativeWindow* window){
   char validation[PROP_VALUE_MAX]{};__system_property_get("debug.thorfg.validate",validation);bool validate=validation[0]=='1';
@@ -29,7 +36,10 @@ struct Demo {
   for(uint32_t i=0;i<n;i++){VkBool32 present=0;vkGetPhysicalDeviceSurfaceSupportKHR(phys,i,surface,&present);if(present&&(families[i].queueFlags&3)==3){family=i;break;}}if(family==~0u)throw std::runtime_error("No graphics/compute/present queue");
   std::vector<float> priorities(1,1.0f);char allQueues[PROP_VALUE_MAX]{};__system_property_get("debug.thorfg.demo_all_queues",allQueues);if(allQueues[0]=='1')priorities.assign(families[family].queueCount,1.0f);
   LOG("DEMO_QUEUE_REQUEST count=%zu available=%u",priorities.size(),families[family].queueCount);
-  VkDeviceQueueCreateInfo qi{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};qi.queueFamilyIndex=family;qi.queueCount=priorities.size();qi.pQueuePriorities=priorities.data();const char* de="VK_KHR_swapchain";VkDeviceCreateInfo di{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};di.queueCreateInfoCount=1;di.pQueueCreateInfos=&qi;di.enabledExtensionCount=1;di.ppEnabledExtensionNames=&de;requireVk(vkCreateDevice(phys,&di,nullptr,&device),"DemoCreateDevice");a.load(device,vkGetDeviceProcAddr);a.GetDeviceQueue(device,family,0,&queue);
+  char ownsTiming[PROP_VALUE_MAX]{};__system_property_get("debug.thorfg.demo_owns_timing",ownsTiming);
+  const char* extensions[]={"VK_KHR_swapchain",VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME};
+  VkDeviceQueueCreateInfo qi{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};qi.queueFamilyIndex=family;qi.queueCount=priorities.size();qi.pQueuePriorities=priorities.data();VkDeviceCreateInfo di{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};di.queueCreateInfoCount=1;di.pQueueCreateInfos=&qi;di.enabledExtensionCount=ownsTiming[0]=='1'?2:1;di.ppEnabledExtensionNames=extensions;requireVk(vkCreateDevice(phys,&di,nullptr,&device),"DemoCreateDevice");a.load(device,vkGetDeviceProcAddr);a.GetDeviceQueue(device,family,0,&queue);
+  if(ownsTiming[0]=='1'){appTiming=(PFN_vkGetPastPresentationTimingGOOGLE)vkGetDeviceProcAddr(device,"vkGetPastPresentationTimingGOOGLE");if(!appTiming)throw std::runtime_error("Application display timing was not available");}
   VkSurfaceCapabilitiesKHR caps{};requireVk(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(phys,surface,&caps),"SurfaceCaps");extent=caps.currentExtent;if(extent.width==~0u)extent={uint32_t(ANativeWindow_getWidth(window)),uint32_t(ANativeWindow_getHeight(window))};
   vkGetPhysicalDeviceSurfaceFormatsKHR(phys,surface,&n,nullptr);std::vector<VkSurfaceFormatKHR> formats(n);vkGetPhysicalDeviceSurfaceFormatsKHR(phys,surface,&n,formats.data());auto chosen=formats[0];for(auto f:formats)if(f.format==VK_FORMAT_R8G8B8A8_UNORM&&f.colorSpace==VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)chosen=f;
   swapFormat=chosen.format;
@@ -49,7 +59,9 @@ struct Demo {
   uint32_t index=0;a.ResetFences(device,1,&fence);VkResult r=a.AcquireNextImageKHR(device,swapchain,100000000,VK_NULL_HANDLE,fence,&index);if(r==VK_TIMEOUT||r==VK_NOT_READY)return true;if(r!=VK_SUCCESS&&r!=VK_SUBOPTIMAL_KHR)return false;requireVk(a.WaitForFences(device,1,&fence,VK_TRUE,UINT64_MAX),"DemoAcquire");
   begin();e.barrier(cmd,images[index],VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL,0,VK_ACCESS_TRANSFER_WRITE_BIT);
   if(linear){VkImageBlit b{};b.srcSubresource=b.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};b.srcOffsets[1]={int32_t(image.size.width),int32_t(image.size.height),1};b.dstOffsets[1]={int32_t(extent.width),int32_t(extent.height),1};a.CmdBlitImage(cmd,image.image,VK_IMAGE_LAYOUT_GENERAL,images[index],VK_IMAGE_LAYOUT_GENERAL,1,&b,VK_FILTER_LINEAR);}else e.blit(cmd,image.image,image.size,images[index],extent);
-  e.barrier(cmd,images[index],VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,VK_ACCESS_TRANSFER_WRITE_BIT,0);requireVk(a.EndCommandBuffer(cmd),"ShowEnd");VkSubmitInfo sub{VK_STRUCTURE_TYPE_SUBMIT_INFO};sub.commandBufferCount=1;sub.pCommandBuffers=&cmd;sub.signalSemaphoreCount=1;sub.pSignalSemaphores=&ready[index];requireVk(a.ResetFences(device,1,&workFence),"ShowResetWork");requireVk(a.QueueSubmit(queue,1,&sub,workFence),"ShowSubmit");workPending=true;VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};pi.waitSemaphoreCount=1;pi.pWaitSemaphores=&ready[index];pi.swapchainCount=1;pi.pSwapchains=&swapchain;pi.pImageIndices=&index;r=a.QueuePresentKHR(queue,&pi);return r==VK_SUCCESS||r==VK_SUBOPTIMAL_KHR;
+  e.barrier(cmd,images[index],VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,VK_ACCESS_TRANSFER_WRITE_BIT,0);requireVk(a.EndCommandBuffer(cmd),"ShowEnd");VkSubmitInfo sub{VK_STRUCTURE_TYPE_SUBMIT_INFO};sub.commandBufferCount=1;sub.pCommandBuffers=&cmd;sub.signalSemaphoreCount=1;sub.pSignalSemaphores=&ready[index];requireVk(a.ResetFences(device,1,&workFence),"ShowResetWork");requireVk(a.QueueSubmit(queue,1,&sub,workFence),"ShowSubmit");workPending=true;VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};pi.waitSemaphoreCount=1;pi.pWaitSemaphores=&ready[index];pi.swapchainCount=1;pi.pSwapchains=&swapchain;pi.pImageIndices=&index;
+  VkPresentTimeGOOGLE time{appPresentID+1,0};VkPresentTimesInfoGOOGLE times{VK_STRUCTURE_TYPE_PRESENT_TIMES_INFO_GOOGLE};times.swapchainCount=1;times.pTimes=&time;if(appTiming){++appPresentID;pi.pNext=&times;}
+  r=a.QueuePresentKHR(queue,&pi);if(appTiming&&(appPresentID-100000)%8==0)pollAppTiming();return r==VK_SUCCESS||r==VK_SUBOPTIMAL_KHR;
  }
  bool showQa(float sceneTime,int sceneCut){
   if(!qaBuffer)throw std::runtime_error("QA mode must be selected at launch");
@@ -78,11 +90,13 @@ struct Demo {
  }
  void run(){
   using Clock=std::chrono::steady_clock;auto next=Clock::now(),since=next;uint64_t frame=0,requests=0;double processing=0;int lastMode=-1;
-  char target[PROP_VALUE_MAX]{};__system_property_get("debug.thorfg.demo_fps",target);int sourceFps=std::atoi(target);if(sourceFps!=60&&sourceFps!=120)sourceFps=30;int frameUs=1000000/sourceFps;LOG("DEMO_SOURCE_TARGET fps=%d",sourceFps);
+  char target[PROP_VALUE_MAX]{},jitter[PROP_VALUE_MAX]{};__system_property_get("debug.thorfg.demo_fps",target);__system_property_get("debug.thorfg.demo_jitter_ms",jitter);
+  int sourceFps=std::atoi(target);if(sourceFps<15||sourceFps>240)sourceFps=30;int frameUs=1000000/sourceFps;
+  int jitterUs=std::clamp(std::atoi(jitter)*1000,0,frameUs/2-250);LOG("DEMO_SOURCE_TARGET fps=%d jitter_us=%d",sourceFps,jitterUs);
   while(running){int m=mode.load();if(m!=lastMode){e.hasHistory=false;lastMode=m;LOG("MODE %d",m);}begin();e.barrier(cmd,source.image,sourceInitialized?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL,sourceInitialized?VK_ACCESS_TRANSFER_READ_BIT:0,VK_ACCESS_SHADER_WRITE_BIT);sourceInitialized=true;
    struct {int32_t size[2];float time;int32_t cut;} p{{640,360},float(frame)/sourceFps,int((frame/(sourceFps*5))%2)};a.CmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,scene.pipeline);a.CmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,scene.layout,0,1,&sceneSet,0,nullptr);a.CmdPushConstants(cmd,scene.layout,VK_SHADER_STAGE_COMPUTE_BIT,0,16,&p);a.CmdDispatch(cmd,80,45,1);
    auto before=Clock::now();bool had=e.hasHistory;if(m==1||m==2||m==4)e.record(cmd,source.image,VK_IMAGE_LAYOUT_GENERAL);else e.barrier(cmd,source.image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_SHADER_WRITE_BIT,VK_ACCESS_TRANSFER_READ_BIT);submit();processing+=std::chrono::duration<double,std::milli>(Clock::now()-before).count();
-   std::this_thread::sleep_until(next);
+   std::this_thread::sleep_until(next+std::chrono::microseconds((frame%2)?jitterUs:-jitterUs));
    if(m==2&&had&&e.readQuality().allow){if(!show(e.upMid,false))break;requests++;std::this_thread::sleep_until(next+std::chrono::microseconds(frameUs/2));}
    if(m==4){if(!showQa(p.time,p.cut))break;}else if(!show((m==1||m==2)?e.upCurrent:source,m==0||m==3))break;requests++;frame++;next+=std::chrono::microseconds(frameUs);if(next<Clock::now()-std::chrono::milliseconds(100))next=Clock::now();
    if(frame%120==0){double seconds=std::chrono::duration<double>(Clock::now()-since).count();LOG("COUNTERS input=%llu present_requests=%llu elapsed=%.3fs requests_per_s=%.2f avg_record_submit_wait_ms=%.3f (NOT displayed FPS/GPU timestamps)",(unsigned long long)frame,(unsigned long long)requests,seconds,requests/seconds,processing/frame);}

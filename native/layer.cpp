@@ -33,7 +33,7 @@ struct Swap {
  VkExtent2D spatialInput{};bool spatialActive=false;uint64_t spatialPresents=0;
  bool spatialCompatible=false;
  bool timing=false;uint32_t presentID=0;PresentationWindow presentation;
- std::unordered_map<uint32_t,bool> pendingPresents;
+ struct PendingPresent{bool generated;uint64_t source;};std::unordered_map<uint32_t,PendingPresent> pendingPresents;
  SourceCadence cadence;uint64_t refreshNs=16666667,lastRealDesired=0,rateSkipped=0;
  VkFence workDone{};bool workPending=false;
  VkQueryPool queries{};uint32_t timestampBits=0;bool outputTimed=false;
@@ -51,7 +51,7 @@ struct Device {
  std::unordered_map<VkCommandPool,uint32_t> appPools;
  std::unordered_map<VkCommandBuffer,SpatialCommands> appCommands;
  bool spatialDiagnostic=false;
- PFN_vkGetPastPresentationTimingGOOGLE pastTiming{};
+ PFN_vkGetPastPresentationTimingGOOGLE pastTiming{};bool applicationTiming=false;
  PFN_vkGetRefreshCycleDurationGOOGLE refreshTiming{};
  float timestampPeriod=0;
  VkQueue privateQueue{};uint32_t privateFamily=~0u;std::mutex privateQueueMutex;bool sharedPresenter=false;
@@ -98,7 +98,7 @@ static void reportMetrics(Swap& s,uint32_t qualityFlags,double blockingMs){
  // These are incoming and generated PRESENT REQUEST rates. Neither rate is a
  // scanout measurement. Keep dimensions in the protocol so the HUD cannot
  // mislabel the current same-size filter as active super resolution.
- LOG("THOR_METRICS v=2 pid=%d swap=%llu eligible=%d in_w=%u in_h=%u out_w=%u out_h=%u source_fps=%.2f generated_fps=%.2f sources=%llu generated=%llu cuts=%llu holds=%llu flow_skips=%llu flags=%u blocking_ms=%.3f sr=%d sr_in_w=%u sr_in_h=%u sr_presents=%llu uptime_ms=%llu display_valid=%d display_fps=%.2f display_generated_fps=%.2f display_samples=%zu gap_median_ms=%.3f gap_p95_ms=%.3f gap_max_ms=%.3f rate_skips=%llu fg_gpu_input_ms=%.3f fg_gpu_output_ms=%.3f fg_gpu_input_samples=%u fg_gpu_output_samples=%u fg_cpu_quality_wait_ms=%.3f fg_cpu_previous_wait_ms=%.3f fg_cpu_present_ms=%.3f fg_cpu_processing_ms=%.3f fg_cost_frames=%u presenter=%s fg_cpu_source_call_last_ms=%.3f fg_async_backpressure_last_ms=%.3f",
+ LOG("THOR_METRICS v=2 pid=%d swap=%llu eligible=%d in_w=%u in_h=%u out_w=%u out_h=%u source_fps=%.2f generated_fps=%.2f sources=%llu generated=%llu cuts=%llu holds=%llu flow_skips=%llu flags=%u blocking_ms=%.3f sr=%d sr_in_w=%u sr_in_h=%u sr_presents=%llu uptime_ms=%llu display_valid=%d display_fps=%.2f display_generated_fps=%.2f display_samples=%zu gap_median_ms=%.3f gap_p95_ms=%.3f gap_max_ms=%.3f rate_skips=%llu fg_gpu_input_ms=%.3f fg_gpu_output_ms=%.3f fg_gpu_input_samples=%u fg_gpu_output_samples=%u fg_cpu_quality_wait_ms=%.3f fg_cpu_previous_wait_ms=%.3f fg_cpu_present_ms=%.3f fg_cpu_processing_ms=%.3f fg_cost_frames=%u presenter=%s fg_cpu_source_call_last_ms=%.3f fg_async_backpressure_last_ms=%.3f source_interval_ms=%.3f cadence_policy=%s api_to_present_real_ms=%.3f api_to_present_real_p95_ms=%.3f api_to_present_generated_ms=%.3f api_to_present_generated_p95_ms=%.3f api_to_present_real_samples=%zu api_to_present_generated_samples=%zu",
   getpid(),(unsigned long long)(uintptr_t)s.handle,s.supported&&!s.disabled,
   s.extent.width,s.extent.height,s.extent.width,s.extent.height,
   (s.sources-s.metricsSources)/seconds,(s.generated-s.metricsGenerated)/seconds,
@@ -107,7 +107,7 @@ static void reportMetrics(Swap& s,uint32_t qualityFlags,double blockingMs){
   s.spatialActive,s.spatialInput.width,s.spatialInput.height,(unsigned long long)s.spatialPresents,(unsigned long long)uptime,
   display.valid,display.fps,display.generatedFps,display.samples,display.medianGapMs,display.p95GapMs,display.maxGapMs,(unsigned long long)s.rateSkipped,
   s.inputGpuTotal/std::max(1u,s.inputGpuSamples),s.outputGpuTotal/std::max(1u,s.outputGpuSamples),s.inputGpuSamples,s.outputGpuSamples,
-  s.qualityWaitTotal/std::max(1u,s.costFrames),s.previousWaitTotal/std::max(1u,s.costFrames),s.presentTotal/std::max(1u,s.costFrames),s.callTotal/std::max(1u,s.costFrames),s.costFrames,s.asyncFrame?(s.sharedFrame?"async_shared":"async_queue"):"fence",s.lastSourceCallMs.load(),s.lastBackpressureMs.load());
+  s.qualityWaitTotal/std::max(1u,s.costFrames),s.previousWaitTotal/std::max(1u,s.costFrames),s.presentTotal/std::max(1u,s.costFrames),s.callTotal/std::max(1u,s.costFrames),s.costFrames,s.asyncFrame?(s.sharedFrame?"async_shared":"async_queue"):"fence",s.lastSourceCallMs.load(),s.lastBackpressureMs.load(),s.cadence.interval()/1e6,s.cadence.legacy?"legacy":"trimmed_mean",display.realAgeMs,display.realAgeP95Ms,display.generatedAgeMs,display.generatedAgeP95Ms,display.realAgeSamples,display.generatedAgeSamples);
  s.metricsAt=now;s.metricsSources=s.sources;s.metricsGenerated=s.generated;
  s.costFrames=s.inputGpuSamples=s.outputGpuSamples=0;
  s.inputGpuTotal=s.outputGpuTotal=s.qualityWaitTotal=s.previousWaitTotal=s.presentTotal=s.callTotal=0;
@@ -132,6 +132,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL createDevice(VkPhysicalDevice physical,con
  auto fn=(PFN_vkCreateDevice)gipa(inst->handle,"vkCreateDevice");auto* downstreamLink=link->u.pLayerInfo->pNext;link->u.pLayerInfo=downstreamLink;
  auto changed=*ci;std::vector<const char*> extensions;bool timing=false;
  for(uint32_t i=0;i<ci->enabledExtensionCount;i++){extensions.push_back(ci->ppEnabledExtensionNames[i]);if(!strcmp(ci->ppEnabledExtensionNames[i],VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME))timing=true;}
+ bool applicationTiming=timing;
  if(enabled()&&!timing){
   auto enumerate=(PFN_vkEnumerateDeviceExtensionProperties)gipa(inst->handle,"vkEnumerateDeviceExtensionProperties");uint32_t count=0;
   if(enumerate&&enumerate(physical,nullptr,&count,nullptr)==VK_SUCCESS){std::vector<VkExtensionProperties> supported(count);auto er=enumerate(physical,nullptr,&count,supported.data());if(er==VK_SUCCESS)for(const auto& extension:supported)if(!strcmp(extension.extensionName,VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME)){timing=true;extensions.push_back(VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME);break;}}
@@ -162,11 +163,14 @@ static VKAPI_ATTR VkResult VKAPI_CALL createDevice(VkPhysicalDevice physical,con
  if(privateFamily!=~0u){d->privateFamily=privateFamily;d->a.GetDeviceQueue(*out,privateFamily,privateIndex,&d->privateQueue);if(d->setLoaderData&&d->privateQueue&&d->setLoaderData(*out,d->privateQueue)!=VK_SUCCESS)d->privateQueue=VK_NULL_HANDLE;LOG("ASYNC_QUEUE family=%u private_index=%u available=%d",privateFamily,privateIndex,d->privateQueue!=VK_NULL_HANDLE);}
  d->sharedPresenter=enabled()&&sharedSafe&&(mode==PresenterMode::Shared||(mode==PresenterMode::Automatic&&!d->privateQueue));
  if(mode==PresenterMode::Shared||(mode==PresenterMode::Automatic&&!d->privateQueue))LOG("ASYNC_SHARED available=%d",d->sharedPresenter);
- if(timing){d->pastTiming=(PFN_vkGetPastPresentationTimingGOOGLE)get(*out,"vkGetPastPresentationTimingGOOGLE");d->refreshTiming=(PFN_vkGetRefreshCycleDurationGOOGLE)get(*out,"vkGetRefreshCycleDurationGOOGLE");}
+ d->applicationTiming=applicationTiming;
+ // GOOGLE timing records are returned only once. An app that enabled this
+ // extension owns its records; internal polling must never consume them.
+ if(timing){if(!applicationTiming)d->pastTiming=(PFN_vkGetPastPresentationTimingGOOGLE)get(*out,"vkGetPastPresentationTimingGOOGLE");d->refreshTiming=(PFN_vkGetRefreshCycleDurationGOOGLE)get(*out,"vkGetRefreshCycleDurationGOOGLE");}
  auto mem=(PFN_vkGetPhysicalDeviceMemoryProperties)inst->gipa(inst->handle,"vkGetPhysicalDeviceMemoryProperties");mem(physical,&d->memory);
  auto propertiesFn=(PFN_vkGetPhysicalDeviceProperties)inst->gipa(inst->handle,"vkGetPhysicalDeviceProperties");VkPhysicalDeviceProperties properties{};propertiesFn(physical,&properties);d->timestampPeriod=properties.limits.timestampPeriod;
  {std::lock_guard<std::mutex> l(globalMutex);devices[key(*out)]=d;}
- LOG("DEVICE registered display_timing=%d",d->pastTiming!=nullptr);return r;
+ LOG("DEVICE registered display_timing=%d application_timing=%d",d->pastTiming!=nullptr,d->applicationTiming);return r;
 }
 static void releaseSwap(Device& d,Swap& s){auto& a=d.a;layerDeviceIdle(d);s.workPending=false;s.engine.reset();for(auto sem:s.ready)if(sem)a.DestroySemaphore(d.handle,sem,nullptr);if(s.acquired)a.DestroyFence(d.handle,s.acquired,nullptr);if(s.workDone)a.DestroyFence(d.handle,s.workDone,nullptr);if(s.queries)a.DestroyQueryPool(d.handle,s.queries,nullptr);if(s.pool)a.DestroyCommandPool(d.handle,s.pool,nullptr);s.pool={};s.acquired={};s.workDone={};s.queries={};s.ready.clear();}
 static VKAPI_ATTR void VKAPI_CALL destroyDevice(VkDevice device,const VkAllocationCallbacks* alloc){auto d=deviceFor(device);if(!d)return;drainDevice(*d);{std::lock_guard<std::mutex> l(d->mutex);d->a.DeviceWaitIdle(device);d->appCommands.clear();d->appPools.clear();for(auto& entry:d->swaps){entry.second->worker.stop();releaseSwap(*d,*entry.second);}d->swaps.clear();}{std::lock_guard<std::mutex> l(globalMutex);for(auto i=queues.begin();i!=queues.end();)if(i->second.device==d)i=queues.erase(i);else ++i;devices.erase(key(device));}d->a.DestroyDevice(device,alloc);}
@@ -314,7 +318,8 @@ static VKAPI_ATTR VkResult VKAPI_CALL present(VkQueue queue,const VkPresentInfoK
  s.spatialActive=false;uint32_t presented=info->pImageIndices[0];
  {std::lock_guard<std::mutex> metadata(d->mutex);if(presented<s.spatialFrames.size()&&s.spatialFrames[presented].pending){s.spatialActive=true;s.spatialInput=s.spatialFrames[presented].input;s.spatialFrames[presented].pending=false;++s.spatialPresents;}}
  pollPresentation(*d,s);
- s.producerCadence.record(arrivedNs);s.cadence=s.producerCadence;
+ char cadencePolicy[PROP_VALUE_MAX]{};__system_property_get("debug.thorfg.cadence",cadencePolicy);
+ s.producerCadence.record(arrivedNs,!strcmp(cadencePolicy,"legacy"));s.cadence=s.producerCadence;
  if(info->pNext){if(s.engine)s.engine->hasHistory=false;s.lastRealDesired=0;auto result=layerPresent(*d,queue,info);reportMetrics(s,0,0);return result;}
  if(!fgEnabled()){
   if(s.engine)s.engine->hasHistory=false;s.lastRealDesired=0;

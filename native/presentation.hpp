@@ -4,15 +4,21 @@
 #include <deque>
 #include <vector>
 
-struct PresentationStats {bool valid=false;double fps=0,generatedFps=0,medianGapMs=0,p95GapMs=0,maxGapMs=0;size_t samples=0;};
+struct PresentationStats {
+ bool valid=false;double fps=0,generatedFps=0,medianGapMs=0,p95GapMs=0,maxGapMs=0;size_t samples=0;
+ // Age begins at the intercepted present call, not at input sampling. Only
+ // frames with a returned actual presentation timestamp contribute.
+ double realAgeMs=0,realAgeP95Ms=0,generatedAgeMs=0,generatedAgeP95Ms=0;
+ size_t realAgeSamples=0,generatedAgeSamples=0;
+};
 struct PresentationWindow {
- struct Frame {uint64_t time;uint32_t id;bool generated;};
+ struct Frame {uint64_t time;uint32_t id;bool generated;uint64_t source=0;};
  std::deque<Frame> frames;
- void record(uint64_t time,uint32_t id,bool generated){
+ void record(uint64_t time,uint32_t id,bool generated,uint64_t source=0){
   if(!time)return;
   auto at=std::lower_bound(frames.begin(),frames.end(),time,[](const Frame& frame,uint64_t value){return frame.time<value;});
-  if(at!=frames.end()&&at->time==time){if(id>at->id)*at={time,id,generated};}
-  else frames.insert(at,{time,id,generated});
+  if(at!=frames.end()&&at->time==time){if(id>at->id)*at={time,id,generated,source};}
+  else frames.insert(at,{time,id,generated,source});
   uint64_t newest=frames.back().time;
   while(frames.size()>2&&(frames.size()>256||newest-frames.front().time>1000000000ull))frames.pop_front();
  }
@@ -20,19 +26,37 @@ struct PresentationWindow {
   PresentationStats result{};result.samples=frames.size();
   if(frames.size()<2||now<frames.back().time||now-frames.back().time>250000000ull)return result;
   uint64_t span=frames.back().time-frames.front().time;if(span<500000000ull)return result;
-  result.valid=true;result.fps=(frames.size()-1)*1e9/double(span);size_t generated=0;std::vector<double> gaps;
-  for(size_t i=1;i<frames.size();i++){generated+=frames[i].generated;gaps.push_back((frames[i].time-frames[i-1].time)/1e6);}
+  result.valid=true;result.fps=(frames.size()-1)*1e9/double(span);size_t generated=0;std::vector<double> gaps,realAges,generatedAges;
+  for(size_t i=1;i<frames.size();i++){
+   const auto& frame=frames[i];generated+=frame.generated;gaps.push_back((frame.time-frames[i-1].time)/1e6);
+   if(frame.source&&frame.time>=frame.source)(frame.generated?generatedAges:realAges).push_back((frame.time-frame.source)/1e6);
+  }
+  auto ageStats=[](std::vector<double>& ages,double& median,double& p95,size_t& count){count=ages.size();if(ages.empty())return;std::sort(ages.begin(),ages.end());median=ages[ages.size()/2];p95=ages[std::min(ages.size()-1,size_t(ages.size()*0.95))];};
+  ageStats(realAges,result.realAgeMs,result.realAgeP95Ms,result.realAgeSamples);ageStats(generatedAges,result.generatedAgeMs,result.generatedAgeP95Ms,result.generatedAgeSamples);
   result.generatedFps=generated*1e9/double(span);std::sort(gaps.begin(),gaps.end());result.medianGapMs=gaps[gaps.size()/2];result.p95GapMs=gaps[std::min(gaps.size()-1,size_t(gaps.size()*0.95))];result.maxGapMs=gaps.back();return result;
  }
 };
 struct SourceCadence {
- uint64_t first=0,last=0;std::deque<uint64_t> gaps;
- void record(uint64_t now){
+ uint64_t first=0,last=0;std::deque<uint64_t> gaps;bool legacy=false;
+ void record(uint64_t now,bool useLegacy=false){
+  if(legacy!=useLegacy){first=last=0;gaps.clear();legacy=useLegacy;}
   if(!first)first=now;
-  if(last&&now>last){uint64_t gap=now-last;if(gap>200000000ull){gaps.clear();first=now;}else if(gap>1000000ull){gaps.push_back(gap);if(gaps.size()>16)gaps.pop_front();}}
+  if(last&&now>last){uint64_t gap=now-last;if(gap>200000000ull){gaps.clear();first=now;}else if(!legacy||gap>1000000ull){gaps.push_back(gap);if(gaps.size()>16)gaps.pop_front();}}
   last=now;
  }
- uint64_t interval()const{if(gaps.empty())return 33333333ull;std::vector<uint64_t> sorted(gaps.begin(),gaps.end());std::sort(sorted.begin(),sorted.end());return sorted[sorted.size()/2];}
+ uint64_t interval()const{
+  if(gaps.empty())return 33333333ull;
+  std::vector<uint64_t> sorted(gaps.begin(),gaps.end());std::sort(sorted.begin(),sorted.end());
+  if(legacy)return sorted[sorted.size()/2];
+  // Fast/slow arrivals can alternate even when game simulation runs steadily.
+  // The upper median selects the slow half and can misclassify90/120FPS as a
+  // source fit for2x. Retain sub-ms arrivals and average the central samples;
+  // discard one extreme at each end only after enough history, so one hitch
+  // does not slow the following output phase for a whole observation window.
+  size_t begin=sorted.size()>=8?1:0,end=sorted.size()-begin;uint64_t sum=0;
+  for(size_t n=begin;n<end;n++)sum+=sorted[n];
+  return (sum+(end-begin)/2)/(end-begin);
+ }
  bool ready()const{return last>=first&&last-first>=250000000ull&&gaps.size()>=8;}
  bool canDouble(uint64_t refresh)const{return ready()&&double(interval())>=double(refresh)*1.9;}
 };

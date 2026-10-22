@@ -1,8 +1,89 @@
-THOR NATIVE FG — NHẬT KÝ KIỂM CHỨNG (CẬP NHẬT0.6)
+THOR NATIVE FG — NHẬT KÝ KIỂM CHỨNG (CẬP NHẬT0.7)
 
-HIỆN TẠI: APK0.6 và bootstrap0.3 đã cài. Engine vẫn thử nghiệm; mục tiêu
-DLSS-like đầy đủ chưa đạt. Các mục0.1–0.5 phía dưới là lịch sử, không phải
-trạng thái máy hiện tại. Xem phần0.6 và PRODUCT-REQUIREMENTS.txt.
+HIỆN TẠI: APK0.7 và bootstrap0.3 đã cài. Engine vẫn thử nghiệm; mục tiêu
+DLSS-like đầy đủ chưa đạt. Các mục0.1–0.6 phía dưới là lịch sử, không phải
+trạng thái máy hiện tại. Xem phần0.7 và PRODUCT-REQUIREMENTS.txt.
+
+CẬP NHẬT0.7 — CADENCE, FRAME AGE VÀ TIMESTAMP CỦA GAME
+- Tái hiện lỗi: median phía trên của16khoảng nguồn và việc bỏ các khoảng≤1ms
+  nhận nhầm các lượt tới nhanh/chậm xen kẽ. Nguồn90/120FPS có thể bị bật2x,
+  nguồn60FPS bị pace theo nửa chậm. Thay bằng trung bình sau khi bỏ một min/
+  max nếu đủ8mẫu; giữ mọi khoảng dương, reset sau pause hoặc đổi policy.
+  Bốn fixture mới thất bại trên mã cũ; bản cuối qua22/22kiểm thử timestamp/
+  cadence/đổi tốc độ/frame age trên Thor. research/pacing-final-timing-selftest.txt.
+- Cảnh mẫu60FPS có jitter, stock Adreno: bản cũ trung vị nguồn59,98, trình
+  bày105,29FPS, p95gap16,824ms; bản mới59,95→117,86, p95gap8,415ms. Nguồn
+  jitter90: cũ89,98→57,16 với FG bật sai; mới89,99→89,68, generated0. Ép
+  policy cũ trong cùng binary mới tái hiện lỗi90FPS. Nguồn jitter120 có
+  validation:118,87→118,88, generated0. Shared+validation60:59,92→117,37;
+  shared+validation90:89,88→89,68, generated0. Không suy từ cảnh mẫu thành
+  lợi ích phổ quát. research/pacing-cadence-summary.json và từng log gốc.
+- Đo age của frame thật/nội suy: bắt đầu ở lời gọi vkQueuePresentKHR của
+  nguồn, kết thúc ở actualPresentTime mà driver trả. Chỉ đếm mẫu có timestamp
+  hợp lệ; không cắt bỏ mẫu chậm. Không bao gồm lúc game đọc nút bấm, không
+  phải input-to-photon hay đo trực tiếp scanout. HUD vẫn chỉ Gốc|FG.
+- Cảnh mẫu55FPS jitter, trace đã bỏ3s đầu/250ms cuối: policy cũ real-age
+  median37,259/p9559,172ms; mới32,948/40,717ms; SR-only16,194/21,135ms.
+  Một số presentMargin của driver bị underflow; bộ phân tích giữ raw log,
+  loại margin>1s khỏi thống kê margin. Các desired/actual bất thường cũng
+  còn được ghi, không coi driver timing là phép đo quang học tuyệt đối.
+  research/pacing-age-{legacy55,robust55,sr-only55}.{txt,json}.
+- Đối chứng menu Castlevania cùng PID9877, SR1280x720→1080p, hiệu ứng/FG của
+  DroidDeck tắt/plain linear; mỗi lượt22s, bỏ3s đầu. Các số là trung vị:
+    policy cũ: nguồn53,74 / trình bày96,72 / real-age32,077ms;
+    policy mới A:52,835 /98,975 /40,303ms;
+    chỉ SR:57,47 /57,42 /15,262ms, generated0;
+    policy mới B:53,46 /98,72 /40,037ms.
+  GPU input FG vẫn khoảng7ms; p95gap FG khoảng16,83ms, còn gap lớn. Bản mới
+  sửa nhận diện nguồn nhưng chưa giải quyết ngân sách vblank/queue; trong
+  game này age còn tăng so với policy cũ. Không gọi đây là giảm input latency,
+  tăng FPS gốc hay tăng chất lượng. research/droid-pacing-case-menu-* và
+  research/droid-async-case-summary.json. Các lượt cũ0.6 vẫn giữ riêng.
+- Sửa lỗi lấy mất GOOGLE display-timing của ứng dụng. Nếu game đã bật extension,
+  layer không tự đọc/xóa history của nó. Fixture có ID riêng truy vấn mỗi8frame:
+  trước105/840bản ghi, sau420/840; đối chứng không nạp Thor424/848, cùng tỷ lệ
+  0,5 do giới hạn history driver. Truy vấn mỗi frame trước/sau đều716/720,
+  unknown ID0. Không hứa trả mọi present chỉ vì app đã gọi present. Phiên cuối
+  có validation không có lỗi trong log. research/pacing-timing-client-summary.json.
+  pNext của ứng dụng vẫn đi passthrough, chưa có timing virtualization/FG cho
+  mọi game dùng pacing riêng. Trường hợp này Thor không có display timing
+  riêng; HUD dùng dấu≈ cho ước tính. Không tuyên bố đã hỗ trợ mọi Swappy path.
+- QA cuối PID22795:6/6GPU SR reference readback,6/6compute-state restoration,
+  recreate2swapchain và hot OFF/ON có≥3cửa sổ generated/display-valid sau hồi
+  phục; không có validation/threading error trong log. Đã sửa package visibility
+  của provider validation trong APK QA. Các log *invalid* là lượt không nạp
+  được đúng đường kiểm thử, không phải validation pass.
+  research/pacing-final-qa-lifecycle.txt. Build/SPIR-V validation/ký APK qua.
+- Controller cuối đã cài; DroidDeck PID23617 nạp đúng runtime77EB... và Steam
+  vào thư viện. Game mở được, menu Gốc/FG có dữ liệu mới, SR1280x720→1080p.
+  Sau Continue, cảnh intro thực có21cửa sổ hợp lệ trong25s: trung vị nguồn
+  23,84 / trình bày47,13FPS, GPU input6,600ms, real-age65,850/p9581,869ms.
+  Cut/hold/flow-reject tăng trong log; chưa có đối chiếu chất lượng ở từng cut
+  hay thử traversal/combat. Không lấy FPS cao của menu thay kết quả intro.
+  research/droid-pacing-case-final-continue.{txt,json}, pacing-final-droid-complete.txt.
+- Save và cấu hình từ bản sao lấy trước phiên này đã khôi phục: hai .sav cùng
+  SHA/UID/GID/mode0600, session.xml cùng SHA419318EC...; đã gỡ hai package QA,
+  còn16rule sản phẩm, auto1/SR1, GPUdebug0 và xóa override đo. Kiểm tra root
+  không thấy Thor trong system_server/SurfaceFlinger. Lượt pull XML đối chiếu
+  đầu bị lỗi quyền được đọc lại bằng helper root trước khi tính pass.
+  research/pacing-save-verification.json và pacing-final-preboot-audit.txt.
+- Reboot cuối: bootstrap3, auto1/SR1 và16rule tự trở lại; service HUD khôi phục,
+  không có cửa sổ Thor ở Home. DroidDeck PID10551 tự nạp runtime77EB..., vào
+  thư viện Steam và có frame nội suy/timestamp hiển thị hợp lệ. Cấu hình hiệu
+  ứng gốc đã khôi phục nên Thor sr=0 ở lượt hậu boot này; không dùng nó thay
+  bằng chứng SR trong game với plain linear ở trên. system_server2185 và
+  SurfaceFlinger2320 giữ nguyên tới299s; không có watchdog-kill trong log thu.
+  Vẫn có EGLConfig abort ở SurfaceFlinger đầu boot rồi Android hồi phục; chưa
+  xác định/sửa căn nguyên, không gọi toàn bộ boot là không có lỗi. Xem
+  research/pacing-final-boot-{crash,system,audit}.txt và pacing-final-postboot-droid.txt.
+  Đã đóng DroidDeck/về Home, giữ auto bật và đối chiếu session.xml vẫn đúng SHA.
+- APK0.7 SHA256:
+ 52497365D3C6AA56F1C7C1827568F17E077CC9A67486E5E8169C6AB008832C2B
+  Runtime.so SHA256:
+ 77EB155CD3B41E494CEB33B52D81C5900FAE96B8353D552610E8EC4E9FB0B06F
+  Bootstrap0.3 không đổi. Các runtime cũ tiếp tục được giữ để không phá
+  tiến trình đã bind. Chất lượng gameplay/cut nhanh, GLES,temporal/neural SR,
+  ngân sách frame/độ trễ và thử tải dài vẫn phải làm tiếp.
 
 CẬP NHẬT0.6 — FG CHẠY NỀN VÀ KIỂM THỬ DROIDDECK
 - Chuyển quality wait/present sang một worker cho mỗi swapchain, tối đa một

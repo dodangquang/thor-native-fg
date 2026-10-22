@@ -1,10 +1,14 @@
-THOR NATIVE FG 0.6 — BẢN THỬ NGHIỆM ĐỘC LẬP
+THOR NATIVE FG 0.7 — BẢN THỬ NGHIỆM ĐỘC LẬP
 
-Bản0.6 đưa FG sang worker riêng để luồng trình bày của giả lập có thể chạy
-tiếp. App tự chọn queue phù hợp; custom Turnip của DroidDeck dùng đường queue
-chung có đồng bộ. Không cần bật thêm nút. Nguồn gần119FPS được giữ nguyên.
-Đã chạy SR1280x720→1080p và FG trong menu/intro Castlevania; FPS trình bày vẫn
-dao động, chưa đạt chất lượng/tương thích đầy đủ như DLSS. Xem STATUS-VI.txt.
+Bản0.7 sửa nhận diện tốc độ nguồn khi frame tới không đều: nguồn90/120FPS
+không còn bị nhận nhầm để bật nội suy2x. Layer cũng giữ timestamp riêng của
+ứng dụng, tránh lấy mất bản ghi mà game cần. Không cần bật thêm nút.
+FG tiếp tục chạy qua worker của0.6; custom Turnip của DroidDeck dùng queue
+chung có đồng bộ. Đã chạy SR1280x720→1080p và FG trong menu/intro Castlevania.
+Pacing và độ trễ vẫn cần cải thiện: trong menu, FG đạt khoảng99FPS từ53FPS
+nguồn nhưng thời gian API-present→timestamp trình bày frame thật khoảng40ms,
+so với15ms khi chỉ SR. Đây không phải phép đo độ trễ tay cầm. Chưa đạt chất
+lượng/tương thích đầy đủ như DLSS. Xem STATUS-VI.txt và PRODUCT-REQUIREMENTS.txt.
 
 Bản0.5 đã sửa lỗi Steam kẹt sau khi cập nhật APK Thor trong lúc DroidDeck đã mở.
 Engine được đóng gói trong runtime cùng chữ ký, kiểm SHA-256, cài tự động khi
