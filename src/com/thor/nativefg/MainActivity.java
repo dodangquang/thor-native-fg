@@ -31,7 +31,7 @@ public class MainActivity extends Activity {
         LinearLayout page=new LinearLayout(this);page.setOrientation(1);page.setPadding(36,28,36,24);page.setBackgroundColor(Color.rgb(12,20,33));
         ScrollView scroll=new ScrollView(this);scroll.addView(page);setContentView(scroll);
         TextView title=text("THOR NATIVE FG",26);title.setTextColor(Color.rgb(87,222,212));page.addView(title);
-        page.addView(text("Frame gen độc lập + GSR 1 • Bản thử nghiệm 0.4",16));
+        page.addView(text("Frame gen độc lập + GSR 1 • Bản thử nghiệm 0.5",16));
         page.addView(text("Không phải NVIDIA DLSS. Chưa xác nhận tương thích mọi giả lập hay tăng FPS thực tế. Layer hỗ trợ thử nghiệm Vulkan FIFO, SDR RGBA/BGRA8; OpenGL ES và driver nạp riêng có thể không đi qua layer.",15));
         page.addView(text("Engine FG thuộc Thor Native FG. Khi thử, tắt FG tích hợp trong giả lập để tránh nội suy hai lần. GSR 1 xử lý ảnh render thấp khi đường hiển thị Vulkan phù hợp; hãy đặt độ phân giải thấp trong game/giả lập. Chỉ báo ON khi có pass upscale được gửi thật.",15));
         button(page,"Chạy cảnh mẫu Vulkan · GSR 1 + FG 2x",()->startActivity(new Intent(this,DemoActivity.class)));
@@ -101,10 +101,11 @@ public class MainActivity extends Activity {
             boolean module="yes".equals(root("if [ -f "+MODULE+"/module.prop ] && [ ! -f "+MODULE+"/disable ]; then echo yes; fi"));
             if(!debuggable&&!module)throw new IOException("Ứng dụng release này cần module Zygisk Thor Native FG và một lần khởi động lại. Chưa thể bật chỉ bằng quyền su. Module nằm tại E:\\ThorNative\\ThorNativeFG-Zygisk-experimental.zip trên PC.");
             saveBackup();
+            RuntimeProvider.ensure(this);
             if(AutoMode.requested(this))AutoMode.configure(this,false,sr);
             if(id.length()>90)throw new IOException("Package name too long for Android property");
             if(module)root("setprop debug.thorfg.target "+id);
-            root("settings put global enable_gpu_debug_layers 1 && settings put global gpu_debug_app "+id+" && settings put global gpu_debug_layers VK_LAYER_THOR_native_fg && settings put global gpu_debug_layer_app com.thor.nativefg && setprop debug.thorfg.sr "+(sr?"1":"0")+" && setprop debug.thorfg.enabled 1");
+            root("settings put global enable_gpu_debug_layers 1 && settings put global gpu_debug_app "+id+" && settings put global gpu_debug_layers VK_LAYER_THOR_native_fg && settings put global gpu_debug_layer_app "+RuntimeBuild.PACKAGE+" && setprop debug.thorfg.sr "+(sr?"1":"0")+" && setprop debug.thorfg.enabled 1");
             Intent launch=getPackageManager().getLaunchIntentForPackage(id);
             // Do not force-stop an emulator from the UI: the user may have unsaved gameplay.
             runOnUiThread(()->{if(Settings.canDrawOverlays(this))showOverlay();if(launch!=null)startActivity(launch);});
@@ -123,7 +124,7 @@ public class MainActivity extends Activity {
         root("setprop debug.thorfg.sr "+("1".equals(old.optString("thor_sr",""))?"1":"0"));
     }
     private String readStatus()throws Exception{
-        boolean auto=AutoMode.requested(this);String autoStatus=auto?"Tự động: đã yêu cầu; bootstrap đang chạy="+root("getprop sys.thorfg.bootstrap")+" (cần 2).\n":"";
+        boolean auto=AutoMode.requested(this);String autoStatus=auto?"Tự động: đã yêu cầu; bootstrap đang chạy="+root("getprop sys.thorfg.bootstrap")+" (cần 2 trở lên).\n":"";
         String target=auto?root("game_target=$("+AutoMode.foregroundScript()+"); if "+AutoMode.allowedScript()+"; then printf %s \"$game_target\"; fi"):root("settings get global gpu_debug_app");
         if(auto&&target.isEmpty()){
             String last=AutoMode.preferences(this).getString("auto_last_package","");

@@ -37,7 +37,7 @@ final class AutoMode {
         preferences(context).edit().putStringSet("auto_include",include).putStringSet("auto_exclude",exclude).apply();
     }
     static synchronized String configure(Context context,boolean enabled,boolean sr)throws Exception{
-        String provider=context.getApplicationInfo().nativeLibraryDir;
+        String provider=enabled?RuntimeProvider.ensure(context):context.getApplicationInfo().nativeLibraryDir;
         if(!provider.startsWith("/data/app/")||!provider.endsWith("/lib/arm64")||provider.contains("\n"))throw new IOException("Đường dẫn provider ARM64 không hợp lệ");
         StringBuilder config=new StringBuilder("THOR_AUTO_V1\nenabled=").append(enabled?'1':'0').append("\nsr=").append(sr?'1':'0').append("\nprovider=").append(provider).append('\n');
         int count=0;for(Entry entry:applications(context))if(entry.selected){config.append("app=").append(entry.uid).append(':').append(entry.id).append('\n');count++;}
@@ -48,7 +48,7 @@ final class AutoMode {
             "\nsetprop debug.thorfg.auto_sr "+(sr?"1":"0")+"\nsetprop debug.thorfg.auto "+(enabled?"1":"0")+"\ngetprop sys.thorfg.bootstrap\n";
         String version=RootShell.run(script);preferences(context).edit().putBoolean("auto_enabled",enabled).putBoolean("upscale",sr).apply();
         if(!enabled)return "Đã tắt tự động. Layer đã nạp sẽ ngừng FG; lần mở mới không được tự nạp nữa. Chế độ bật thủ công có cấu hình riêng.";
-        if(!version.equals("2"))return "Đã lưu tự động cho "+count+" ứng dụng. Cần module bootstrap 0.2 và khởi động lại máy để nạp bộ kích hoạt mới. Chưa xác nhận tự động hoạt động. Không tự đóng game đang chạy.";
+        if(!version.equals("2")&&!version.equals("3"))return "Đã lưu tự động cho "+count+" ứng dụng. Cần module bootstrap 0.2 trở lên và khởi động lại máy để nạp bộ kích hoạt mới. Chưa xác nhận tự động hoạt động. Không tự đóng game đang chạy.";
         return "Đã bật tự động cho "+count+" game/giả lập. Mở ứng dụng từ launcher bình thường; chọn Vulkan. Ứng dụng đang chạy cần lưu và thoát/mở lại một lần để nạp layer. Ô FPS chỉ hiện khi ứng dụng trong danh sách đang ở trước.";
     }
     static synchronized void refresh(Context context)throws Exception{if(requested(context))configure(context,true,preferences(context).getBoolean("upscale",true));}

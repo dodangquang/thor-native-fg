@@ -1,4 +1,12 @@
-THOR NATIVE FG 0.4 — BẢN THỬ NGHIỆM ĐỘC LẬP
+THOR NATIVE FG 0.5 — BẢN THỬ NGHIỆM ĐỘC LẬP
+
+Bản0.5 sửa lỗi Steam kẹt sau khi cập nhật APK Thor trong lúc DroidDeck đã mở.
+Engine được đóng gói trong runtime cùng chữ ký, kiểm SHA-256, cài tự động khi
+bật FG. Runtime không có icon/dịch vụ; mỗi binary dùng package riêng và được
+giữ lại để các tiến trình đã mở không mất đường dẫn thư viện. Cập nhật controller
+không còn thay thế runtime. Không cần cài hay bật một ứng dụng FG khác.
+Bootstrap0.3 kiểm tra thư viện còn tồn tại trước khi tự nạp; cần reboot khi nâng
+module. Lựa chọn game và master tự động vẫn được giữ trong file cấu hình root.
 
 Mở ứng dụng Thor Native FG trên Thor.
 CHẾ ĐỘ TỰ ĐỘNG (ĐÃ BẬT TRÊN THOR)
@@ -19,8 +27,7 @@ Nhận diện dựa trên package giả lập và metadata game, không đoán t
 Game thiếu metadata có thể thêm tay; launcher thường/benchmark không được
 chọn mặc định. Danh sách cập nhật khi cài/gỡ app. OpenGL ES/custom loader
 chưa được tự biến thành Vulkan; tự chọn app không chứng minh renderer đã chạy FG.
-APK0.4 và bootstrap0.2 đã cài, reboot theo phép người dùng và kiểm thử trên
-Thor. Không cần reboot thêm để dùng bản hiện tại. Xem STATUS-VI.txt.
+Xem STATUS-VI.txt để biết bản đã cài và kết quả kiểm thử mới nhất trên Thor.
 
 CHẾ ĐỘ THỦ CÔNG / CẢNH MẪU
 1. Chạy cảnh mẫu để so sánh Bilinear, GSR1 và GSR1+FG.
@@ -40,8 +47,12 @@ giảm độ phân giải render. Layer thay bước blit phóng ảnh cuối ph
 Chỉ hỗ trợ thử nghiệm blit màu toàn màn hình trên Vulkan/queue có compute;
 renderer dùng draw pass, blit2, khung không phù hợp hoặc ảnh đã cùng cỡ có thể
 không được upscale. Xem 'Đọc trạng thái' để biết kích thước và SR thực tế.
-Đây là spatial SR, chưa phải temporal DLSS/SGSR2. Đường này đã kiểm bằng
-nguồn Vulkan riêng; chưa xác nhận gameplay DroidDeck với render thấp.
+Đây là spatial SR, chưa phải temporal DLSS/SGSR2. Đã kiểm ảnh tham chiếu Vulkan
+và nhận ảnh1280x720 trong cutscene/hội thoại Castlevania qua DroidDeck, xuất1080p.
+Để thử engine SR của Thor trên đường này, chuỗi upscale/hiệu ứng của DroidDeck
+cần để plain linear/no-effects; nếu ảnh đã được DroidDeck upscale trước thì
+Thor báo chưa SR. Cấu hình hiệu ứng gốc đã khôi phục sau test. Chưa có đối chiếu
+chất lượng/lợi ích FPS trong gameplay di chuyển/chiến đấu.
 
 Ô FPS NHỎ
 Bấm 'Hiện FPS gốc / FG', cấp quyền hiển thị trên ứng dụng khác.

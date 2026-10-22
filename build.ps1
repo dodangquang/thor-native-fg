@@ -51,6 +51,7 @@ $common=@('-std=c++17','-O2','-fPIC','-I',"$build/generated",'-I',"$root/native"
 & $cc @common "$root/tests/presentation_test.cpp" -o "$build/thor-presentation-test";Check 'Presentation timing selftest'
 & $cc @common "$root/tests/auto_config_test.cpp" -o "$build/thor-auto-config-test";Check 'Automatic activation configuration selftest'
 & $cc @common "$root/tests/auto_ipc_test.cpp" -o "$build/thor-auto-ipc-test" -ldl;Check 'Automatic activation companion integration selftest'
+& $cc @common "$root/tests/auto_provider_test.cpp" -o "$build/thor-auto-provider-test";Check 'Runtime availability selftest'
 New-Item -ItemType Directory -Force -Path "$root/module/zygisk" | Out-Null
 & $cc @common -shared "$root/native/zygisk.cpp" -o "$root/module/zygisk/arm64-v8a.so" -llog '-Wl,-z,max-page-size=16384';Check 'Zygisk bootstrap'
 # Zip entries must use '/', including when built on Windows (Magisk extracts on Linux).
@@ -59,15 +60,33 @@ $moduleRoot=[IO.Path]::GetFullPath("$root/module")
 $zipFile=[IO.File]::Open("$root/ThorNativeFG-Zygisk-experimental.zip",[IO.FileMode]::Create)
 $archive=[IO.Compression.ZipArchive]::new($zipFile,[IO.Compression.ZipArchiveMode]::Create)
 try{foreach($file in Get-ChildItem -LiteralPath $moduleRoot -Recurse -File){$relative=$file.FullName.Substring($moduleRoot.Length+1).Replace('\','/');$entry=$archive.CreateEntry($relative);$stream=$entry.Open();$inputFile=[IO.File]::OpenRead($file.FullName);try{$inputFile.CopyTo($stream)}finally{$inputFile.Dispose();$stream.Dispose()}}}finally{$archive.Dispose();$zipFile.Dispose()}
+# A controller update must not remove a layer path already bound in a game.
+# Install each distinct engine as an immutable APK, with no launcher or service.
+$runtimeHash=(Get-FileHash -LiteralPath "$build/lib/arm64-v8a/libVkLayer_ThorFG.so" -Algorithm SHA256).Hash.ToLowerInvariant()
+$runtimePackage="com.thor.nativefg.runtime.v$runtimeHash"
+New-Item -ItemType Directory -Force -Path "$build/runtime/lib/arm64-v8a","$build/assets","$build/generated/java/com/thor/nativefg" | Out-Null
+Copy-Item -LiteralPath "$build/lib/arm64-v8a/libVkLayer_ThorFG.so" -Destination "$build/runtime/lib/arm64-v8a/libVkLayer_ThorFG.so" -Force
+$runtimeManifest='<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="'+$runtimePackage+'" android:versionCode="1" android:versionName="1"><uses-sdk android:minSdkVersion="29" android:targetSdkVersion="33"/><application android:label="Thor Native FG Runtime" android:hasCode="false" android:allowBackup="false" android:extractNativeLibs="true"/></manifest>'
+[IO.File]::WriteAllText("$build/runtime/AndroidManifest.xml",$runtimeManifest,[Text.UTF8Encoding]::new($false))
+$key="$build/thor-native-development.jks"
+if(-not(Test-Path -LiteralPath $key)){& "$jdk/bin/keytool.exe" -genkeypair -keystore $key -storepass android -keypass android -alias thor -dname 'CN=Thor Native Development' -keyalg RSA -keysize 2048 -validity 3650;Check 'keytool'}
+& "$bt/aapt.exe" package -f -M "$build/runtime/AndroidManifest.xml" -I $androidJar -F "$build/runtime/unsigned.apk";Check 'runtime aapt'
+& "$jdk/bin/jar.exe" uf "$build/runtime/unsigned.apk" -C "$build/runtime" lib;Check 'runtime jar'
+& "$bt/zipalign.exe" -f -p 4 "$build/runtime/unsigned.apk" "$build/runtime/aligned.apk";Check 'runtime zipalign'
+& "$bt/apksigner.bat" sign --ks $key --ks-key-alias thor --ks-pass pass:android --key-pass pass:android --out "$build/assets/thor-runtime.apk" "$build/runtime/aligned.apk";Check 'runtime sign'
+& "$bt/apksigner.bat" verify "$build/assets/thor-runtime.apk";Check 'runtime verify'
+$runtimeSource='package com.thor.nativefg; final class RuntimeBuild { static final String PACKAGE="'+$runtimePackage+'"; static final String SHA256="'+$runtimeHash+'"; }'
+[IO.File]::WriteAllText("$build/generated/java/com/thor/nativefg/RuntimeBuild.java",$runtimeSource,[Text.UTF8Encoding]::new($false))
+$controllerManifest=(Get-Content -LiteralPath "$root/AndroidManifest.xml" -Raw).Replace('<queries>','<queries><package android:name="'+$runtimePackage+'"/>')
+[IO.File]::WriteAllText("$build/AndroidManifest.xml",$controllerManifest,[Text.UTF8Encoding]::new($false))
 $sources=@(Get-ChildItem -LiteralPath "$root/src" -Recurse -Filter '*.java' | ForEach-Object FullName)
+$sources+="$build/generated/java/com/thor/nativefg/RuntimeBuild.java"
 & "$jdk/bin/javac.exe" -encoding UTF-8 -source 8 -target 8 -bootclasspath "$androidJar;$bt/core-lambda-stubs.jar" -d "$build/classes" @sources;Check 'javac'
 $classes=@(Get-ChildItem -LiteralPath "$build/classes" -Recurse -Filter '*.class' | ForEach-Object FullName)
 & "$bt/d8.bat" --lib $androidJar --min-api 29 --output "$build/dex" @classes;Check 'd8'
-& "$bt/aapt.exe" package -f -M "$root/AndroidManifest.xml" -I $androidJar -F "$build/unsigned.apk";Check 'aapt'
+& "$bt/aapt.exe" package -f -M "$build/AndroidManifest.xml" -A "$build/assets" -I $androidJar -F "$build/unsigned.apk";Check 'aapt'
 & "$jdk/bin/jar.exe" uf "$build/unsigned.apk" -C "$build/dex" classes.dex -C $build lib;Check 'jar'
 & "$bt/zipalign.exe" -f -p 4 "$build/unsigned.apk" "$build/aligned.apk";Check 'zipalign'
-$key="$build/thor-native-development.jks"
-if(-not(Test-Path -LiteralPath $key)){& "$jdk/bin/keytool.exe" -genkeypair -keystore $key -storepass android -keypass android -alias thor -dname 'CN=Thor Native Development' -keyalg RSA -keysize 2048 -validity 3650;Check 'keytool'}
 & "$bt/apksigner.bat" sign --ks $key --ks-key-alias thor --ks-pass pass:android --key-pass pass:android --out "$root/ThorNativeFG-debug.apk" "$build/aligned.apk";Check 'sign'
 & "$bt/apksigner.bat" verify --verbose "$root/ThorNativeFG-debug.apk";Check 'verify'
 Get-FileHash -LiteralPath "$root/ThorNativeFG-debug.apk" -Algorithm SHA256

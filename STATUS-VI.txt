@@ -1,9 +1,78 @@
-THOR NATIVE FG — NHẬT KÝ KIỂM CHỨNG (CẬP NHẬT0.4)
+THOR NATIVE FG — NHẬT KÝ KIỂM CHỨNG (CẬP NHẬT0.5)
 
-HIỆN TẠI: APK0.4 và bootstrap0.2 đã cài, reboot thành công, tự động bật cho
-16game/giả lập đã chọn. Các mục0.1/0.2/0.3 phía dưới ghi lại những phiên trước;
+HIỆN TẠI: APK0.5 và bootstrap0.3 đã cài, reboot thành công, tự động bật cho
+16game/giả lập đã chọn. Các mục0.1/0.2/0.3/0.4 phía dưới ghi lại những phiên trước;
 không dùng trạng thái 'tắt' trong các mục lịch sử làm trạng thái máy hiện tại.
-Mục tiêu DLSS-like đầy đủ vẫn chưa đạt. Xem phần cập nhật0.4 ở cuối file.
+Mục tiêu DLSS-like đầy đủ vẫn chưa đạt. Xem cập nhật0.5 dưới đây.
+
+CẬP NHẬT0.5 — STEAM, PROVIDER VÀ BOOT
+- Tái hiện có kiểm soát: DroidDeck PID9503 mở trước lúc cập nhật controller;
+  sau cập nhật, Vulkan tìm base.apk đã bị Android xóa và vkCreateInstance thất
+  bại. Steam tiếp tục gửi buffer nhưng compositor không có device để nhập ảnh.
+  research/controller-update-old-path-repro.txt.
+- Đóng gói mỗi binary engine thành runtime APK bất biến, cùng chữ ký controller,
+  tên package theo SHA-256. Controller kiểm chữ ký + hash trước khi dùng. Không
+  có icon, activity hay service trong runtime. Cài tự động từ asset của controller;
+  không thay thế/xóa runtime cũ mà tiến trình đã bind có thể còn tham chiếu.
+- Phép thử đối chứng: DroidDeck PID12130 giữ nguyên qua cập nhật controller,
+  controller đổi đường dẫn, runtime giữ nguyên. Sau đó Steam vào thư viện, tạo
+  instance/device/swapchain và có38cửa sổ timestamp hiển thị. Không có lỗi
+  vkCreateInstance trong phiên này. research/provider-update-summary.json.
+- Bootstrap0.3 kiểm regular file, quyền sở hữu, quyền ghi và ARM64 ELF header
+  trước khi yêu cầu layer. Thiếu runtime thì không inject vào tiến trình mới.
+  7/7kiểm tra availability,7/7IPC thật và2/2IPC missing-provider qua trên Thor.
+  research/pinned-provider-v3-selftest.txt.
+- Sau reboot đầu, kiểm tra PackageManager quá sớm làm auto=0. Đã sửa thứ tự:
+  nạp cấu hình root sớm, đợi boot rồi mới kiểm package/controller và mở HUD.
+  Reboot lại xác nhận bootstrap=3, auto=1, auto_sr=1, HUD service đang chạy.
+  research/provider-v3-boot-final.txt. Global debug.vulkan.layers vẫn trống.
+- Thử startup với đường provider không tồn tại: PPSSPP mở được menu, không
+  map Thor.so. Khôi phục file và mở lại: AUTO_SELECTED version3, layer instance,
+  device và swapchain tạo được. research/provider-missing-ppsspp-startup.txt và
+  provider-v3-ppsspp-normal.txt. Cấu hình lỗi tạm đã được khôi phục bằng trap.
+- DroidDeck sau reboot cũng vào thư viện Steam với FG. FG tích hợp DroidDeck
+  vẫn engine=off. Source/hiển thị khác nhau; chưa chứng minh input latency hay
+  chất lượng gameplay. research/provider-v3-droiddeck-after-boot.txt.
+- Mở Sword of Mana từ launcher qua mGBA/RetroArch: bootstrap tự chọn đúng app,
+  game chạy bằng Adreno OpenGL ES. Không có Thor Vulkan metrics, HUD báo chờ.
+  Đường GLES vẫn chưa được hỗ trợ, không được suy thành đã bật FG cho game này.
+  research/launcher-retroarch-gba.txt.
+- Cấu hình hiệu ứng DroidDeck gốc đã sao lưu research/droid-session-before-sr.xml.
+  Thử plain linear/no-effects để engine Thor nhận ảnh1280x720 trước upscale:
+  log SR_PIPELINE1280x720→1920x1080, sr=1 và sr_presents tăng trên Steam UI.
+  research/droiddeck-own-sr-initial.txt. Đây chưa phải bằng chứng gameplay.
+- Trong menu Castlevania với cấu hình hiệu ứng DroidDeck cũ, FG làm nguồn giảm
+  xuống khoảng40FPS, đầu ra khoảng80FPS; khi tắt Thor, compositor khoảng54–55FPS.
+  Đây là đối chiếu ngắn, có yếu tố nhiệt/thời gian, không phải benchmark kiểm soát.
+  Không tuyên bố lợi ích FPS nguồn. Quality readback đồng bộ vẫn cần thay đổi.
+- Save Unity Castlevania được sao lưu trước khi thử gameplay:
+  research/castlevania-save-before-testing.tar. Kết thúc test đã giữ thêm bản sau
+  test và phục hồi bản trước test khi app đã dừng. Hash nội dung hai file save
+  khớp bản trước; thực tế test cũng chưa đổi nội dung save.
+- Phiên Castlevania với no-effects/plain linear của DroidDeck đã qua menu,
+  cutscene và hội thoại có thao tác A trên tay cầm Odin. 274cửa sổ telemetry còn
+  trong log,03:16:48→03:21:27: trung vị nguồn22,34FPS, timestamp hiển thị40,28FPS,
+  trong đó20,49FPS là generated. Cả274cửa sổ đều sr=1, nhận1280x720→1920x1080.
+  GPU input FG trung vị6,724ms; CPU quality wait19,034ms. Đây là chi phí từng
+  đoạn, không phải input-to-photon latency. research/castlevania-runtime-summary.json
+  và droiddeck-own-sr-game.txt. Không suy thành benchmark di chuyển/chiến đấu,
+  chất lượng HUD/occlusion đạt yêu cầu, hay hiệu năng nguồn tốt hơn khi tắt FG.
+- Log compositor xác nhận engine hiệu ứng/upscale tích hợp đã off/plain linear,
+  nhận buffer game1280x720. research/droiddeck-own-sr-wayland.txt. Kết thúc test
+  đã dừng DroidDeck và RetroArch, về launcher để ngừng tải game. Cấu hình hiệu
+  ứng DroidDeck gốc phục hồi khớp SHA-256, FG của DroidDeck vẫn off. Auto/SR Thor
+  vẫn1, bootstrap3. Không còn cấu hình fault injection tạm trong auto.conf.
+- APK0.5 SHA256:
+ 72599458ABDB531647306F92601B462B06B5E2CD773010BEFA1DD06D55145AAD
+  Runtime.so SHA256:
+ 7EED580BEAB563A1F7CF56795B6314892CC8F635A99EDE0138FD4B3C5CE19243
+  Bootstrap.so SHA256:
+ 86C437448DB2D7F69A36C8FAB4ACD82689ED5F35F2C6ADD8A4259E32BF51374A
+ 20kiểm tra telemetry và12quy tắc game qua sau thay đổi. Build/signature/SPIR-V
+ validation qua. Chưa có tự thu hồi các runtime cũ; giữ chúng để tránh phá phiên
+ đã bind. Các lần thử GPU trước không được coi là benchmark game cho bản này.
+
+NHẬT KÝ CÁC BẢN TRƯỚC
 
 ĐÃ CÀI TRÊN MÁY
 - APK com.thor.nativefg, nhãn Thor Native FG, ARM64, ký development v3.

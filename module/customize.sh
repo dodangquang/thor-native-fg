@@ -1,5 +1,5 @@
 #!/system/bin/sh
-ui_print "Thor Native FG bootstrap 0.2 (experimental)"
+ui_print "Thor Native FG bootstrap 0.3 (experimental)"
 ui_print "Only the manual target or the user's automatic UID/package list is eligible."
 ui_print "Enable Zygisk in Magisk and reboot once."
 ui_print "The Vulkan APK and a compatible Vulkan renderer are also required."

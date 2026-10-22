@@ -12,10 +12,12 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include "auto_config.hpp"
+#include "auto_provider.hpp"
 
 static thorAuto::Response autoConfig;
 static bool autoReady=false;
 static std::string automaticLayers="VK_LAYER_THOR_native_fg";
+static std::string incomingLayers;
 static void (*originalLayerPaths)(JNIEnv*,jclass,jobject,jstring)=nullptr;
 static void (*originalDebugLayers)(JNIEnv*,jclass,jstring)=nullptr;
 static std::string javaString(JNIEnv* env,jstring value){
@@ -25,17 +27,24 @@ static std::string javaString(JNIEnv* env,jstring value){
 static void autoDebugLayers(JNIEnv* env,jclass type,jstring layers){
  if(!originalDebugLayers)return;
  if(!autoReady){originalDebugLayers(env,type,layers);return;}
- automaticLayers=thorAuto::withLayer(javaString(env,layers));jstring joined=env->NewStringUTF(automaticLayers.c_str());
+ incomingLayers=javaString(env,layers);automaticLayers=thorAuto::withLayer(incomingLayers);jstring joined=env->NewStringUTF(automaticLayers.c_str());
  if(joined){originalDebugLayers(env,type,joined);env->DeleteLocalRef(joined);}
 }
 static void autoLayerPaths(JNIEnv* env,jclass type,jobject loader,jstring paths){
  if(!originalLayerPaths)return;
  if(!autoReady){originalLayerPaths(env,type,loader,paths);return;}
+ if(!thorAuto::providerAvailable(autoConfig.provider)){
+  // The APK may have been removed between specialization and app binding.
+  autoReady=false;jstring previous=env->NewStringUTF(incomingLayers.c_str());
+  if(previous){originalDebugLayers(env,type,previous);env->DeleteLocalRef(previous);}
+  originalLayerPaths(env,type,loader,paths);
+  __android_log_print(ANDROID_LOG_WARN,"ThorNativeBootstrap","AUTO_BYPASS runtime unavailable; original Vulkan configuration retained");return;
+ }
  // GraphicsEnvironment calls this during application binding, before the game
  // initializes Vulkan. Only this selected child process receives these paths.
  auto value=javaString(env,paths);if(!value.empty())value+=':';value+=autoConfig.provider;
  jstring joined=env->NewStringUTF(value.c_str());jstring layer=env->NewStringUTF(automaticLayers.c_str());
- if(joined&&layer){originalDebugLayers(env,type,layer);originalLayerPaths(env,type,loader,joined);__android_log_print(ANDROID_LOG_INFO,"ThorNativeBootstrap","AUTO_LAYER_PATH ready version=2");}
+ if(joined&&layer){originalDebugLayers(env,type,layer);originalLayerPaths(env,type,loader,joined);__android_log_print(ANDROID_LOG_INFO,"ThorNativeBootstrap","AUTO_LAYER_PATH ready version=3");}
  else if(!env->ExceptionCheck())originalLayerPaths(env,type,loader,paths);
  if(joined)env->DeleteLocalRef(joined);if(layer)env->DeleteLocalRef(layer);
 }
@@ -49,6 +58,7 @@ static void autoCompanion(int client){
    std::string text(size_t(info.st_size),'\0');size_t done=0;
    while(done<text.size()){ssize_t n=read(fd,text.data()+done,text.size()-done);if(n<=0)break;done+=size_t(n);}
    thorAuto::Config parsed;if(done==text.size()&&thorAuto::parse(text,parsed))response=thorAuto::select(parsed,request);
+   if(response.selected&&!thorAuto::providerAvailable(response.provider))response={};
   }close(fd);
  }
  send(client,&response,sizeof(response),MSG_NOSIGNAL);
@@ -80,7 +90,7 @@ public:
    originalLayerPaths=(decltype(originalLayerPaths))hooks[0].fnPtr;originalDebugLayers=(decltype(originalDebugLayers))hooks[1].fnPtr;
    autoReady=originalLayerPaths&&originalDebugLayers;
    // Hook addresses must remain mapped for the lifetime of this process.
-   if(autoReady){selected=true;setenv("THOR_FG_AUTO_MATCH","1",1);__android_log_print(ANDROID_LOG_INFO,"ThorNativeBootstrap","AUTO_SELECTED package=%s uid=%d version=2",package,args->uid);}
+   if(autoReady){selected=true;setenv("THOR_FG_AUTO_MATCH","1",1);__android_log_print(ANDROID_LOG_INFO,"ThorNativeBootstrap","AUTO_SELECTED package=%s uid=%d version=3",package,args->uid);}
    else __android_log_print(ANDROID_LOG_ERROR,"ThorNativeBootstrap","AUTO_UNAVAILABLE GraphicsEnvironment JNI signatures differ; manual mode retained");
   }else api->setOption(zygisk::DLCLOSE_MODULE_LIBRARY);
   if(selected)__android_log_print(ANDROID_LOG_INFO,"ThorNativeBootstrap","target matched app_uid=%d",args->uid);
@@ -90,7 +100,7 @@ public:
   // Android GraphicsEnvironment checks PR_GET_DUMPABLE, not possession of su.
   // Scoped to explicitly selected applications; no SELinux/ro.debuggable changes.
   int result=prctl(PR_SET_DUMPABLE,1,0,0,0);
-  __android_log_print(ANDROID_LOG_INFO,"ThorNativeBootstrap","selected process dumpable=%d result=%d auto=%d version=2",prctl(PR_GET_DUMPABLE,0,0,0,0),result,autoReady);
+  __android_log_print(ANDROID_LOG_INFO,"ThorNativeBootstrap","selected process dumpable=%d result=%d auto=%d version=3",prctl(PR_GET_DUMPABLE,0,0,0,0),result,autoReady);
  }
 };
 REGISTER_ZYGISK_MODULE(ThorLayerBootstrap)

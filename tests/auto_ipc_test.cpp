@@ -8,7 +8,7 @@
 #include <stdexcept>
 
 int main(int argc,char** argv){
- if(argc!=4){std::cerr<<"usage: auto-ipc-test bootstrap.so uid package\n";return 2;}
+ if(argc!=4&&argc!=5){std::cerr<<"usage: auto-ipc-test bootstrap.so uid package [--expect-unavailable]\n";return 2;}
  int checks=0;auto check=[&](bool ok,const char* name){++checks;if(!ok)throw std::runtime_error(name);std::cout<<"PASS "<<name<<'\n';};
  void* library=dlopen(argv[1],RTLD_NOW|RTLD_LOCAL);if(!library)throw std::runtime_error(dlerror());
  auto handler=(void(*)(int))dlsym(library,"zygisk_companion_entry");check(handler,"compiled module exports the companion entry point");
@@ -22,6 +22,10 @@ int main(int argc,char** argv){
  };
  thorAuto::Request request{};request.uid=uint32_t(std::stoul(argv[2]));strncpy(request.package,argv[3],sizeof(request.package)-1);
  auto begin=std::chrono::steady_clock::now();auto response=exchange(request);
+ if(argc==5){
+  check(std::string(argv[4])=="--expect-unavailable"&&!response.selected,"missing runtime is not requested through the real companion");
+  std::cout<<"RESULT checks="<<checks<<" failures=0\n";dlclose(library);return 0;
+ }
  check(response.selected==1&&thorAuto::providerValid(response.provider),"real companion reads the controller's root-owned configuration");
  auto savedUid=request.uid;request.uid++;check(!exchange(request).selected,"real IPC rejects a different UID");request.uid=savedUid;
  strncat(request.package,".other",sizeof(request.package)-strlen(request.package)-1);check(!exchange(request).selected,"real IPC rejects a package prefix");strncpy(request.package,argv[3],sizeof(request.package)-1);

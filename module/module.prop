@@ -1,6 +1,6 @@
 id=thor_native_fg_bootstrap
 name=Thor Native FG - Scoped Vulkan Layer Bootstrap
-version=0.2-experimental
-versionCode=2
+version=0.3-experimental
+versionCode=3
 author=Local Thor Native FG project
 description=Scoped Vulkan bootstrap and automatic activation for user-selected games/emulators. Root-owned UID/package allowlist; no global Vulkan forcing. Requires Zygisk and reboot.
