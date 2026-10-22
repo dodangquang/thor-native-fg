@@ -35,17 +35,24 @@ must accurately distinguish neural/temporal/spatial SR and measured results.
 
 Current verified baseline and gaps:
 - Android Vulkan layer and scoped Zygisk bootstrap run in DroidDeck0.5.0.
-- Existing motion estimator is a coarse small-window block search. Its current
-  scene fallback substitutes a current-frame image but still presents it as a
-  generated frame; there is no cut holdoff/reset or demonstrated pacing quality.
+- Motion remains a coarse small-window block search. Version0.2 now rejects
+  cut/unreliable pairs before acquiring/presenting a generated frame, preserving
+  the original image and holding off for2pairs.21GPU fixtures pass; gameplay
+  quality and pacing are not yet demonstrated by those fixtures.
 - The layer processes 1920x1080 -> 1920x1080: no real in-game SR yet.
 - Queue-idle synchronization and opportunistic extra acquisition can stall the
   source and add latency. Async scheduling/proxy presentation remains required.
 - No gameplay quality, end-to-end latency or sustained-benefit proof exists.
+- A movable HUD uses native per-PID telemetry with stale-data expiry, reports
+  incoming/generated request rates separately and refuses to label same-size
+  filtering as active SR. Runtime and stop/cleanup were checked on Thor.
+- Thor_DLSS_Source.zip was reviewed separately. Its duplicate-present wrapper
+  and disconnected shaders do not supply the missing FG/SR engine. See the
+  source review; do not merge that wrapper as a shortcut to product completion.
 
 Next evidence-driven work:
-A. Build adversarial GPU fixtures for cuts/fast motion, expose quality decisions,
-   and actually suppress generated presentation for rejected frame pairs.
+A. Extend the passing cut/fast-motion fixtures to real gameplay, HUD/occlusion,
+   high-frequency detail and reliable optical flow over larger motion ranges.
 B. Evaluate a mobile neural SR model/runtime and an actual low-resolution source
    path; retain full scope rather than calling a spatial filter the end product.
 C. Replace the blocking presenter and coarse flow as measurements require.

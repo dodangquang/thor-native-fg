@@ -47,7 +47,7 @@ struct Demo {
    struct {int32_t size[2];float time;int32_t cut;} p{{640,360},float(frame)/30.0f,int((frame/150)%2)};a.CmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,scene.pipeline);a.CmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,scene.layout,0,1,&sceneSet,0,nullptr);a.CmdPushConstants(cmd,scene.layout,VK_SHADER_STAGE_COMPUTE_BIT,0,16,&p);a.CmdDispatch(cmd,80,45,1);
    auto before=Clock::now();bool had=e.hasHistory;if(m==1||m==2)e.record(cmd,source.image,VK_IMAGE_LAYOUT_GENERAL);else e.barrier(cmd,source.image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_SHADER_WRITE_BIT,VK_ACCESS_TRANSFER_READ_BIT);submit();processing+=std::chrono::duration<double,std::milli>(Clock::now()-before).count();
    std::this_thread::sleep_until(next);
-   if(m==2&&had){if(!show(e.upMid,false))break;requests++;std::this_thread::sleep_until(next+std::chrono::microseconds(16667));}
+   if(m==2&&had&&e.readQuality().allow){if(!show(e.upMid,false))break;requests++;std::this_thread::sleep_until(next+std::chrono::microseconds(16667));}
    if(!show((m==1||m==2)?e.upCurrent:source,m==0||m==3))break;requests++;frame++;next+=std::chrono::microseconds(33333);if(next<Clock::now()-std::chrono::milliseconds(100))next=Clock::now();
    if(frame%120==0){double seconds=std::chrono::duration<double>(Clock::now()-since).count();LOG("COUNTERS input=%llu present_requests=%llu elapsed=%.3fs requests_per_s=%.2f avg_record_submit_wait_ms=%.3f (NOT displayed FPS/GPU timestamps)",(unsigned long long)frame,(unsigned long long)requests,seconds,requests/seconds,processing/frame);}
   }

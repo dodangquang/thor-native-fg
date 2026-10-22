@@ -13,7 +13,7 @@ if($LASTEXITCODE){throw 'aapt provider'}
 & "$jdk/bin/jar.exe" uf "$qa/provider-unsigned.apk" -C $qa lib
 & "$bt/zipalign.exe" -f -p 4 "$qa/provider-unsigned.apk" "$qa/provider-aligned.apk"
 & "$bt/apksigner.bat" sign --ks "$root/build/thor-native-development.jks" --ks-key-alias thor --ks-pass pass:android --key-pass pass:android --out "$qa/provider.apk" "$qa/provider-aligned.apk"
-$probe=(Get-Content -LiteralPath "$root/AndroidManifest.xml" -Raw).Replace('package="com.thor.nativefg"','package="com.thor.nativefg.releaseprobe"').Replace('android:debuggable="true"','android:debuggable="false"').Replace('android:name=".MainActivity"','android:name="com.thor.nativefg.MainActivity"').Replace('android:name=".DemoActivity"','android:name="com.thor.nativefg.DemoActivity"').Replace('<meta-data android:name="com.android.graphics.injectLayers.enable" android:value="true"/>','')
+$probe=(Get-Content -LiteralPath "$root/AndroidManifest.xml" -Raw).Replace('package="com.thor.nativefg"','package="com.thor.nativefg.releaseprobe"').Replace('android:debuggable="true"','android:debuggable="false"').Replace('android:name=".MainActivity"','android:name="com.thor.nativefg.MainActivity"').Replace('android:name=".DemoActivity"','android:name="com.thor.nativefg.DemoActivity"').Replace('android:name=".FpsOverlayService"','android:name="com.thor.nativefg.FpsOverlayService"').Replace('<meta-data android:name="com.android.graphics.injectLayers.enable" android:value="true"/>','')
 [IO.File]::WriteAllText("$qa/probe/AndroidManifest.xml",$probe)
 & "$bt/aapt.exe" package -f -M "$qa/probe/AndroidManifest.xml" -I $androidJar -F "$qa/probe-unsigned.apk"
 & "$jdk/bin/jar.exe" uf "$qa/probe-unsigned.apk" -C "$root/build/dex" classes.dex -C "$root/build" lib

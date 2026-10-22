@@ -1,14 +1,30 @@
-THOR NATIVE FG 0.1 — BẢN THỬ NGHIỆM
+THOR NATIVE FG 0.2 — BẢN THỬ NGHIỆM ĐỘC LẬP
 
 Mở ứng dụng Thor Native FG trên Thor.
 1. Chạy cảnh mẫu để so sánh Bilinear, GSR1 và GSR1+FG.
-2. Đối với Eden/Winlator có FG sẵn, ưu tiên FG bên trong giả lập.
-3. Muốn thử layer: chọn giả lập, bấm Bật layer, cấp root khi Magisk hỏi.
+2. FG thuộc engine Thor; tắt FG tích hợp trong giả lập khi thử để tránh nội suy
+   hai lần. Không cần Win-FG/LSFG/DLL của DroidDeck.
+3. Chọn giả lập, bấm 'Bật FG của Thor và mở ứng dụng', cấp root khi được hỏi.
 4. Lưu game và thoát hẳn giả lập đang chạy rồi mở lại. Chọn renderer Vulkan.
 5. Đọc trạng thái. Cần có log INSTANCE/DEVICE/SWAPCHAIN/PIPELINE/COUNTERS của
    đúng PID mục tiêu; setting bật thành công không chứng minh FG hoạt động.
 6. Bấm Tắt layer để khôi phục setting. Khởi động lại giả lập để bỏ layer khỏi
    tiến trình đã nạp. Không dùng song song với FG khác.
+
+Ô FPS NHỎ
+Bấm 'Hiện ô FPS + trạng thái FG/SR', cấp quyền hiển thị trên ứng dụng khác.
+Khi đã cấp quyền, nút bật FG tự mở ô. Kéo để di chuyển, chạm để xem ý nghĩa
+số đo. Ẩn bằng nút trong app hoặc thông báo Thor.
+- Nguồn FPS: tốc độ ứng dụng gửi khung vào layer.
+- FG ON (+n gửi/s): engine đã gửi yêu cầu present của ảnh nội suy. Đây chưa
+  phải số khung đã đo trên panel. Không cộng rồi gọi là FPS thực màn hình.
+- Thiếu dữ liệu mới của đúng PID: chuyển trạng thái chờ, không giữ FPS cũ.
+- SR: chưa upscale: đúng với layer0.2 vì ảnh vào/ra vẫn cùng kích thước.
+  Chưa có nút bật DLSS/temporal SR hoàn chỉnh cho game trong bản này.
+
+Bản0.2 loại bỏ yêu cầu frame nội suy khi cut/flow kém, chờ2cặp sau cut rồi
+phục hồi.21kiểm thử GPU và13kiểm thử giao thức HUD đã qua trên bản phát triển.
+Module bootstrap không đổi; cập nhật APK0.2 không cần cài lại module/reboot.
 
 Sau reboot, target và cờ active tự xóa. Chọn lại giả lập để bật thử nghiệm.
 
@@ -24,6 +40,7 @@ ThorNativeFG-debug.apk                 APK ARM64 đã ký thử nghiệm
 ThorNativeFG-Zygisk-experimental.zip   Module bootstrap Magisk/Zygisk
 REPORT-VI.txt                         Kiểm định đề xuất và báo cáo Gemini
 STATUS-VI.txt                         Trạng thái kiểm chứng cuối
+SOURCE-REVIEW-VI.txt                  Đánh giá Thor_DLSS_Source.zip
 native/, shaders/, src/, build.ps1     Mã nguồn và build lặp lại
 third_party/                          GSR1, Zygisk API và attribution/license
 research/                             Log, ảnh, GPU tests, settings trước test

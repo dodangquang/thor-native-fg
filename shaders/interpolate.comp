@@ -1,16 +1,17 @@
 #version 450
+#extension GL_GOOGLE_include_directive : require
 layout(local_size_x=8,local_size_y=8) in;
 layout(binding=0) uniform sampler2D prevFrame;
 layout(binding=1) uniform sampler2D currFrame;
 layout(binding=2) uniform sampler2D flowImage;
 layout(binding=3,rgba8) uniform writeonly image2D result;
-layout(std430,binding=4) readonly buffer Stats { uint difference; uint valid; uint count; uint reserved; } stats;
+#define THOR_QUALITY_BINDING 4
+#include "quality.glsl"
 layout(push_constant) uniform Params { ivec2 inputSize; ivec2 gridSize; float phase; int history; } p;
 void main(){
   ivec2 at=ivec2(gl_GlobalInvocationID.xy); if(any(greaterThanEqual(at,p.inputSize)))return;
   vec2 uv=(vec2(at)+0.5)/vec2(p.inputSize); vec4 current=textureLod(currFrame,uv,0);vec4 color=current;
-  bool cut=stats.count==0 || float(stats.difference)/max(float(stats.count),1.0)/65535.0>0.22 || float(stats.valid)/max(float(stats.count),1.0)<0.65;
-  if(p.history!=0 && !cut){
+  if(p.history!=0 && stats.allow!=0u){
     vec4 flow=textureLod(flowImage,uv,0);
     vec2 aUV=uv-0.5*flow.xy,bUV=uv-0.5*flow.zw;
     vec4 a=textureLod(prevFrame,aUV,0),b=textureLod(currFrame,bUV,0);

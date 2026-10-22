@@ -7,6 +7,7 @@
 #include <mutex>
 #include <unordered_map>
 #include <chrono>
+#include <unistd.h>
 #define LOG(...) __android_log_print(ANDROID_LOG_INFO,"ThorNativeLayer",__VA_ARGS__)
 #define EXPORT extern "C" __attribute__((visibility("default")))
 static const char* layerName="VK_LAYER_THOR_native_fg";
@@ -16,7 +17,9 @@ struct Swap {
  VkSwapchainKHR handle{};VkExtent2D extent{};VkFormat format{};bool supported=false,disabled=false;
  std::vector<VkImage> images;std::vector<VkSemaphore> ready;
  std::unique_ptr<Engine> engine;VkCommandPool pool{};VkCommandBuffer cmd{};VkFence acquired{};
- uint32_t family=~0u;uint64_t sources=0,generated=0,skipped=0;
+ uint32_t family=~0u;uint64_t sources=0,generated=0,skipped=0,cutSkipped=0,holdSkipped=0,flowSkipped=0;
+ std::chrono::steady_clock::time_point metricsAt=std::chrono::steady_clock::now();
+ uint64_t metricsSources=0,metricsGenerated=0;
 };
 struct Device {
  VkDevice handle{};VkPhysicalDevice physical{};std::shared_ptr<Instance> instance;Api a;
@@ -32,6 +35,20 @@ static std::unordered_map<VkQueue,Queue> queues;
 static std::shared_ptr<Device> deviceFor(VkDevice device){std::lock_guard<std::mutex> l(globalMutex);auto i=devices.find(key(device));return i==devices.end()?nullptr:i->second;}
 static std::shared_ptr<Instance> instanceFor(const void* instance){std::lock_guard<std::mutex> l(globalMutex);auto i=instances.find(key(instance));return i==instances.end()?nullptr:i->second;}
 static bool enabled(){char value[PROP_VALUE_MAX]{};__system_property_get("debug.thorfg.enabled",value);return strcmp(value,"1")==0;}
+static void reportMetrics(Swap& s,uint32_t qualityFlags,double blockingMs){
+ auto now=std::chrono::steady_clock::now();double seconds=std::chrono::duration<double>(now-s.metricsAt).count();
+ if(seconds<1.0)return;
+ // These are incoming and generated PRESENT REQUEST rates. Neither rate is a
+ // scanout measurement. Keep dimensions in the protocol so the HUD cannot
+ // mislabel the current same-size filter as active super resolution.
+ LOG("THOR_METRICS v=1 pid=%d swap=%llu eligible=%d in_w=%u in_h=%u out_w=%u out_h=%u source_fps=%.2f generated_fps=%.2f sources=%llu generated=%llu cuts=%llu holds=%llu flow_skips=%llu flags=%u blocking_ms=%.3f",
+  getpid(),(unsigned long long)(uintptr_t)s.handle,s.supported&&!s.disabled,
+  s.extent.width,s.extent.height,s.extent.width,s.extent.height,
+  (s.sources-s.metricsSources)/seconds,(s.generated-s.metricsGenerated)/seconds,
+  (unsigned long long)s.sources,(unsigned long long)s.generated,
+  (unsigned long long)s.cutSkipped,(unsigned long long)s.holdSkipped,(unsigned long long)s.flowSkipped,qualityFlags,blockingMs);
+ s.metricsAt=now;s.metricsSources=s.sources;s.metricsGenerated=s.generated;
+}
 EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(VkInstance,const char*);
 EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetDeviceProcAddr(VkDevice,const char*);
 static VKAPI_ATTR VkResult VKAPI_CALL createInstance(const VkInstanceCreateInfo* ci,const VkAllocationCallbacks* alloc,VkInstance* out){
@@ -99,15 +116,8 @@ static VKAPI_ATTR VkResult VKAPI_CALL present(VkQueue queue,const VkPresentInfoK
  auto d=q.device;auto& a=d->a;std::lock_guard<std::mutex> lock(d->mutex);
  if(info->swapchainCount!=1||info->pNext||!enabled())return a.QueuePresentKHR(queue,info);
  auto found=d->swaps.find(info->pSwapchains[0]);if(found==d->swaps.end())return a.QueuePresentKHR(queue,info);auto& s=*found->second;++s.sources;
- if(!s.supported||s.disabled||!prepare(*d,s,q.family))return a.QueuePresentKHR(queue,info);
+ if(!s.supported||s.disabled||!prepare(*d,s,q.family)){auto result=a.QueuePresentKHR(queue,info);reportMetrics(s,0,0);return result;}
  uint32_t original=info->pImageIndices[0],extra=~0u;if(original>=s.images.size())return a.QueuePresentKHR(queue,info);
- // Never block acquiring a spare image: engines may have acquired several already.
- bool pair=s.engine->hasHistory;
- if(pair){
-  a.ResetFences(d->handle,1,&s.acquired);auto ar=a.AcquireNextImageKHR(d->handle,s.handle,0,VK_NULL_HANDLE,s.acquired,&extra);
-  if(ar!=VK_SUCCESS&&ar!=VK_SUBOPTIMAL_KHR){++s.skipped;s.engine->hasHistory=false;return a.QueuePresentKHR(queue,info);}
-  auto wr=a.WaitForFences(d->handle,1,&s.acquired,VK_TRUE,UINT64_MAX);if(wr!=VK_SUCCESS)return wr;
- }
  auto start=std::chrono::steady_clock::now();
  // Deliberately conservative synchronization for this experimental implementation.
  // This stalls the caller and is not a low-latency async proxy swapchain.
@@ -115,17 +125,37 @@ static VKAPI_ATTR VkResult VKAPI_CALL present(VkQueue queue,const VkPresentInfoK
  a.ResetCommandPool(d->handle,s.pool,0);VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};bi.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
  auto br=a.BeginCommandBuffer(s.cmd,&bi);if(br!=VK_SUCCESS)return br;
  s.engine->record(s.cmd,s.images[original],VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+ auto er=a.EndCommandBuffer(s.cmd);if(er!=VK_SUCCESS)return er;
+ std::vector<VkPipelineStageFlags> stages(info->waitSemaphoreCount,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+ VkSubmitInfo input{VK_STRUCTURE_TYPE_SUBMIT_INFO};input.waitSemaphoreCount=info->waitSemaphoreCount;input.pWaitSemaphores=info->pWaitSemaphores;input.pWaitDstStageMask=stages.data();input.commandBufferCount=1;input.pCommandBuffers=&s.cmd;
+ auto sr=a.QueueSubmit(queue,1,&input,VK_NULL_HANDLE);if(sr!=VK_SUCCESS)return sr;
+ idle=a.QueueWaitIdle(queue);if(idle!=VK_SUCCESS)return idle;
+ const auto quality=s.engine->readQuality();bool pair=quality.allow!=0;
+ if(quality.reasons&QUALITY_CUT)++s.cutSkipped;
+ if(quality.reasons&QUALITY_HOLDOFF)++s.holdSkipped;
+ if(quality.reasons&(QUALITY_LOW_FLOW|QUALITY_FAST_MOTION))++s.flowSkipped;
+ // Acquire only after the GPU has accepted the pair. A rejected pair must
+ // neither occupy a presentation slot with a duplicate nor leak an acquired
+ // spare. The original game's image is preserved exactly on this path.
+ if(pair){
+  a.ResetFences(d->handle,1,&s.acquired);auto ar=a.AcquireNextImageKHR(d->handle,s.handle,0,VK_NULL_HANDLE,s.acquired,&extra);
+  if(ar!=VK_SUCCESS&&ar!=VK_SUBOPTIMAL_KHR){++s.skipped;pair=false;}
+  else {auto wr=a.WaitForFences(d->handle,1,&s.acquired,VK_TRUE,UINT64_MAX);if(wr!=VK_SUCCESS)return wr;}
+ }
+ auto counters=[&](){double ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();reportMetrics(s,quality.reasons,ms);if(s.sources%60==0){LOG("COUNTERS sources=%llu generated_present_requests=%llu spare_skips=%llu cut_skips=%llu hold_skips=%llu flow_skips=%llu last_quality_flags=%u last_blocking_ms=%.3f (NOT displayed FPS)",(unsigned long long)s.sources,(unsigned long long)s.generated,(unsigned long long)s.skipped,(unsigned long long)s.cutSkipped,(unsigned long long)s.holdSkipped,(unsigned long long)s.flowSkipped,quality.reasons,ms);}};
+ if(!pair){VkPresentInfoKHR real=*info;real.waitSemaphoreCount=0;real.pWaitSemaphores=nullptr;auto result=a.QueuePresentKHR(queue,&real);counters();return result;}
+ a.ResetCommandPool(d->handle,s.pool,0);br=a.BeginCommandBuffer(s.cmd,&bi);if(br!=VK_SUCCESS)return br;
  auto output=[&](VkImage from,uint32_t index,VkImageLayout oldLayout){s.engine->barrier(s.cmd,s.images[index],oldLayout,VK_IMAGE_LAYOUT_GENERAL,0,VK_ACCESS_TRANSFER_WRITE_BIT);s.engine->blit(s.cmd,from,s.extent,s.images[index],s.extent);s.engine->barrier(s.cmd,s.images[index],VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,VK_ACCESS_TRANSFER_WRITE_BIT,0);};
  output(s.engine->upCurrent.image,original,VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);if(pair)output(s.engine->upMid.image,extra,VK_IMAGE_LAYOUT_UNDEFINED);
- auto er=a.EndCommandBuffer(s.cmd);if(er!=VK_SUCCESS)return er;
- std::vector<VkPipelineStageFlags> stages(info->waitSemaphoreCount,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);VkSemaphore signals[]={s.ready[original],pair?s.ready[extra]:VK_NULL_HANDLE};
- VkSubmitInfo sub{VK_STRUCTURE_TYPE_SUBMIT_INFO};sub.waitSemaphoreCount=info->waitSemaphoreCount;sub.pWaitSemaphores=info->pWaitSemaphores;sub.pWaitDstStageMask=stages.data();sub.commandBufferCount=1;sub.pCommandBuffers=&s.cmd;sub.signalSemaphoreCount=pair?2:1;sub.pSignalSemaphores=signals;
- auto sr=a.QueueSubmit(queue,1,&sub,VK_NULL_HANDLE);if(sr!=VK_SUCCESS)return sr;
+ er=a.EndCommandBuffer(s.cmd);if(er!=VK_SUCCESS)return er;
+ VkSemaphore signals[]={s.ready[original],s.ready[extra]};
+ VkSubmitInfo sub{VK_STRUCTURE_TYPE_SUBMIT_INFO};sub.commandBufferCount=1;sub.pCommandBuffers=&s.cmd;sub.signalSemaphoreCount=2;sub.pSignalSemaphores=signals;
+ sr=a.QueueSubmit(queue,1,&sub,VK_NULL_HANDLE);if(sr!=VK_SUCCESS)return sr;
  VkResult generatedResult=VK_SUCCESS;
  if(pair){VkPresentInfoKHR gen{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};gen.waitSemaphoreCount=1;gen.pWaitSemaphores=&s.ready[extra];gen.swapchainCount=1;gen.pSwapchains=&s.handle;gen.pImageIndices=&extra;generatedResult=a.QueuePresentKHR(queue,&gen);if(generatedResult==VK_SUCCESS||generatedResult==VK_SUBOPTIMAL_KHR)++s.generated;}
  VkPresentInfoKHR real=*info;real.waitSemaphoreCount=1;real.pWaitSemaphores=&s.ready[original];auto r=a.QueuePresentKHR(queue,&real);
  idle=a.QueueWaitIdle(queue);if(idle!=VK_SUCCESS)return idle;
- if(s.sources%60==0){double ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();LOG("COUNTERS sources=%llu generated_present_requests=%llu spare_skips=%llu last_blocking_ms=%.3f (NOT displayed FPS)",(unsigned long long)s.sources,(unsigned long long)s.generated,(unsigned long long)s.skipped,ms);}
+ counters();
  if(r==VK_SUCCESS&&generatedResult!=VK_SUCCESS&&generatedResult!=VK_SUBOPTIMAL_KHR)return generatedResult;return r;
 }
 EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkEnumerateInstanceLayerProperties(uint32_t* count,VkLayerProperties* properties){if(!properties){*count=1;return VK_SUCCESS;}if(*count==0)return VK_INCOMPLETE;VkLayerProperties p{};strncpy(p.layerName,layerName,sizeof(p.layerName)-1);p.specVersion=VK_API_VERSION_1_1;p.implementationVersion=1;strncpy(p.description,"Thor Native FG experimental SGSR1 + block motion interpolation",sizeof(p.description)-1);properties[0]=p;*count=1;return VK_SUCCESS;}

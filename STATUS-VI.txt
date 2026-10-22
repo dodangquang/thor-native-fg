@@ -82,3 +82,29 @@ CẬP NHẬT SAU KHI NGƯỜI DÙNG MỞ PHIÊN DROIDDECK (23/10/2026)
   DLSS, chưa giảm render resolution, không phải NVIDIA DLSS.
 - Xem research/droiddeck-active-layer-log.txt. Không tự tắt/khởi động lại phiên
   game của người dùng trong lần đọc trạng thái này.
+
+CẬP NHẬT BẢN0.2 — CHỐNG CUT + Ô FPS
+- APK0.2 đã build, ký và cập nhật trên Thor. SHA256:
+  77BE91D64B0F6C67E0C5AD26632C1D3EF94D43B2DBF016A4FA4542BF99BCDF50
+-21kiểm thử GPU qua trên Adreno740: warmup, giữ màu/alpha, hard cut, cùng
+  histogram, cùng luma/khác màu, low-contrast cut, nhiễu/exposure nhỏ, holdoff,
+  flow trong phạm vi, biên vùng tìm kiếm, pan nhanh và6cut liên tiếp.
+  research/quality-selftest.txt. Đây là fixture tổng hợp, không phải gameplay.
+- Layer nay bỏ hẳn yêu cầu frame sinh bị từ chối thay vì vẫn present ảnh lặp.
+  Chỉ acquire image phụ sau khi GPU chấp nhận; giữ history và holdoff2cặp.
+- Ô FPS nhỏ nhận THOR_METRICS của đúng PID từ log engine, tách tốc độ nguồn
+  và yêu cầu present sinh thêm, kiểm tra kích thước để không gắn nhãn SR sai.
+  Dữ liệu quá3,5giây chuyển sang chờ.13kiểm thử parser/trạng thái qua.
+- Cảnh Vulkan ngoài qua validation+sync validation, thu được0lỗiVUID/SYNC.
+  Có số nguồn khoảng30FPS, FG gửi khoảng27–30/s, cut_skips/hold_skips tăng.
+  research/overlay-validation-full.txt. Không dùng số này làm FPS panel.
+- Đã thấy ô nổi trên cảnh mẫu và trên launcher, kéo vị trí được lưu. Quyền
+  overlay/notification đã cấp trên Thor. Start/stop service dọn monitor root;
+  monitor dùng1phiênsu thay vì xin quyền/gây toast định kỳ. Không cần reboot.
+- Đã phục hồi settings trước QA, gỡ provider validation tạm. Hiện cấu hình
+  layer FG để tắt; ô nhỏ hiển thịFG:TẮT/SR:chưa chạy cho đúng trạng thái.
+- Mục tiêu sản phẩm đầy đủ vẫn chưa xong: in-game SR thật, presenter async,
+  chất lượng/gameplay, actual scanouts và latency còn phải thực hiện.
+- Đã đánh giá E:\Thor_DLSS_Source.zip: nguồn đó gửi present lặp, không dispatch
+  shader, FPS có thể đọc dữ liệu thử. Xem SOURCE-REVIEW-VI.txt và log8phép tái
+  hiện lỗi ở research/thor-dlss-source-review-test.txt. Không cài ZIP này.

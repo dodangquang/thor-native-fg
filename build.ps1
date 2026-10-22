@@ -33,9 +33,9 @@ layout(push_constant) uniform Params { ivec2 outputSize; } p;
 '@
 [IO.File]::WriteAllText("$build/generated/upscale.comp",$prefix+"`n"+$shader,[Text.UTF8Encoding]::new($false))
 $header='#pragma once' + "`n#include <cstdint>`n"
-foreach($name in @('flow','interpolate','upscale','scene')){
+foreach($name in @('analyze','quality','flow','interpolate','upscale','scene')){
  $src=if($name -eq 'upscale'){"$build/generated/upscale.comp"}else{"$root/shaders/$name.comp"}
- & "$shaderBin/glslc.exe" --target-env=vulkan1.1 -O $src -o "$build/$name.spv";Check "glslc $name"
+ & "$shaderBin/glslc.exe" --target-env=vulkan1.1 -I "$root/shaders" -O $src -o "$build/$name.spv";Check "glslc $name"
  & "$shaderBin/spirv-val.exe" --target-env vulkan1.1 "$build/$name.spv";Check "spirv-val $name"
  $bytes=[IO.File]::ReadAllBytes("$build/$name.spv")
  $words=for($i=0;$i -lt $bytes.Length;$i+=4){'0x'+[BitConverter]::ToUInt32($bytes,$i).ToString('x8')+'u'}

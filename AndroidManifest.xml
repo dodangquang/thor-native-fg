@@ -1,10 +1,14 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.thor.nativefg" android:versionCode="1" android:versionName="0.1-experimental">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.thor.nativefg" android:versionCode="2" android:versionName="0.2-experimental">
   <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="33"/>
+  <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
   <uses-feature android:name="android.hardware.vulkan.level" android:version="1" android:required="true"/>
   <queries><intent><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent></queries>
   <application android:label="Thor Native FG" android:theme="@android:style/Theme.Material.NoActionBar" android:allowBackup="false" android:debuggable="true" android:extractNativeLibs="true">
     <meta-data android:name="com.android.graphics.injectLayers.enable" android:value="true"/>
     <activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity>
     <activity android:name=".DemoActivity" android:label="Thor Native GPU demo" android:screenOrientation="landscape" android:configChanges="orientation|screenSize|keyboardHidden" android:exported="false"/>
+    <service android:name=".FpsOverlayService" android:exported="false"/>
   </application>
 </manifest>

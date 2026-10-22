@@ -1,0 +1,26 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+layout(local_size_x=1) in;
+#define THOR_QUALITY_BINDING 0
+#include "quality.glsl"
+layout(push_constant) uniform Params { ivec2 inputSize; ivec2 gridSize; float phase; int history; } p;
+void main(){
+ float samples=max(float(stats.count),1.0),blocks=max(float(p.gridSize.x*p.gridSize.y),1.0);
+ float rgb=float(stats.rgbSum)/(samples*65535.0),luma=float(stats.lumaSum)/(samples*65535.0);
+ float changed=float(stats.changed)/samples,valid=float(stats.valid)/blocks,boundary=float(stats.boundary)/blocks;
+ uint histogramDifference=0;
+ for(int i=0;i<64;i++)histogramDifference+=uint(abs(int(stats.previousHistogram[i])-int(stats.currentHistogram[i])));
+ float histogram=float(histogramDifference)/(2.0*samples);
+ uint reasons=0;
+ if(p.history==0){reasons=16u;stats.holdoff=0u;}
+ else {
+  bool cut=rgb>=0.15||luma>=0.16||(histogram>=0.35&&rgb>=0.045)||(changed>=0.78&&rgb>=0.065);
+  if(cut){reasons|=1u;stats.holdoff=2u;}
+  else if(stats.holdoff>0u){reasons|=2u;stats.holdoff--;}
+  if(valid<0.65)reasons|=4u;
+  // Small-window flow is not trustworthy at its search boundary. Later flow
+  // implementations may extend this range; silently accepting it causes warp.
+  if(boundary>0.25)reasons|=8u;
+ }
+ stats.reasons=reasons;stats.allow=reasons==0u?1u:0u;stats.historySerial++;
+}

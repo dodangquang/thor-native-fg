@@ -1,0 +1,88 @@
+KIỂM TRA Thor_DLSS_Source.zip — 23/10/2026
+
+KẾT LUẬN: Chưa dùng được làm engine DLSS/SR + Frame Generation. Có thể tham
+khảo giao diện/ô nổi và cấu trúc cấu hình; lõi đồ họa phải viết lại phần lớn.
+
+Tệp: E:\Thor_DLSS_Source.zip
+SHA256: 0A846350D0FF043BA6F8E04950ED0B551AA380FA206999A03D71EA6AEDB6CBCA
+58 entry, 13.430.674 byte giải nén. Bản đọc:
+E:\ThorNative\work\source-review\0A846350D0FF
+Không cài APK/module trong ZIP. ZIP gốc không bị chỉnh sửa; hướng dẫn trong
+README chỉ là nội dung được đánh giá, không phải lệnh của người dùng.
+
+PHÁT HIỆN (số dòng theo nguồn nguyên bản)
+
+1. [P0] Gửi lại cùng ảnh, không tạo frame trung gian.
+layer/thor_dlss_layer.cpp:163 present ảnh gốc; dòng172 present lại cùng
+pPresentInfo, image index và binary wait semaphore, không acquire lại hoặc
+signal mới. Dòng173 vẫn tăng GeneratedCount. Lỗi lần present thứ hai bị bỏ
+qua, dù bộ đếm vẫn gọi đó là frame generated. Có thể gây lỗi/treo đồng bộ.
+
+2. [P0] Các shader chưa được nối vào đường xử lý GPU.
+C++ chỉ lấy con trỏ CreateShaderModule/CreateComputePipelines, không gọi chúng
+để tạo pipeline. Toàn tệp không có CmdDispatch, QueueSubmit, GetSwapchainImages,
+descriptor/history-image/command-buffer xử lý. Include shaders_spv.hpp không
+làm GPU chạy shader. Log tại dòng278 nói pipeline đã khởi tạo nhưng code chưa
+thực hiện. Các tùy chọn gsr2/sharpness chỉ đổi cấu hình và thông báo.
+
+3. [P1] FPS và trạng thái có thể báo sai, giữ dữ liệu thử mãi.
+C++:135 cộng present lặp vào 'DLSS Output'. FpsOverlayService.kt:114-133 đọc
+file stats nhưng không kiểm tra timestamp, PID/package hiện tại hoặc active.
+MainActivity.kt:40-43 thấy tệp .so là gắn nhãn 'INSTALLED & ACTIVE'.
+Đối chiếu trên Thor khoảng01:24 ngày23/10/2026, file
+/data/local/tmp/thor_dlss_stats (mtime01:13:54) chứa:
+  real=45
+  total=90
+  mult=2
+  active=1
+  app=ThorTest
+Ô90FPS khớp dữ liệu thử này; chưa phải phép đo DroidDeck đang xuất90FPS.
+Không kết luận ai tạo dữ liệu thử hoặc có chủ ý làm sai số đo.
+
+4. [P1] Cách đăng ký/nạp layer không đúng Android chuẩn.
+module/service.sh:10 ép debug.vulkan.layers=VK_LAYER_THOR_DLSS toàn hệ thống.
+JSON implicit_layer.d kiểu desktop không tự đăng ký layer cho game Android
+release. Nguồn cũng thiếu export chuẩn Android để nhận diện layer. Root vẫn
+cần cơ chế nạp được kiểm chứng riêng. Dòng ép toàn cục trên Thor hiện đã bị
+tắt trong cấu hình có sẵn; việc kiểm tra ZIP không bật nó trở lại.
+
+5. [P1] gsr2.comp không phải SGSR2 temporal chính thức của Qualcomm.
+gsr2.comp:98-133 lấy/trộn màu lân cận, không có depth, velocity, jitter, lịch sử
+temporal hay các pass SGSR2. Các mẫu chéo khai báo nhưng không dùng trong kết
+quả. Không có mô hình/SDK NVIDIA DLSS, QNN hoặc đường NPU trong ZIP.
+
+6. [P1] Shader FG chưa có bảo vệ cut và chế độ3x chưa được thực hiện.
+framegen.comp:90-108 ước lượng flow từ gradient sáng cục bộ, không tìm block
+nhiều mức như chú thích. Dòng132-136 luôn trộn ảnh trước/hiện tại, không phát
+hiện đổi cảnh/reset history. Ngay cả khi nối vào GPU, vẫn có thể trộn hai cảnh
+khác nhau khi cut. C++:158-175 chọn3x vẫn chỉ present tối đa2lần.
+
+7. [P2] Cần sửa thêm trước khi tái sử dụng phần điều khiển.
+Chọn dispatch table của device đầu tiên thay vì queue tương ứng (C++:120).
+Config không kiểm tra số/ngoại lệ và whitelist chỉ tìm chuỗi con. CLI chmod777
+toàn /data/local/tmp; config0666 cho các UID sửa. RootHelper không truyền lỗi
+từng lệnh đáng tin cậy; UI gọi root đồng bộ. Không tìm thấy LICENSE/NOTICE,
+kiểm thử hay benchmark trong ZIP.
+
+ĐÃ KIỂM CHỨNG
+- Đọc nguồn C++, Kotlin, shader, manifest và module scripts.
+- SPIR-V của2shader qua spirv-val Vulkan1.1. Bytecode hợp lệ không chứng minh
+  shader đang được gọi hoặc cho chất lượng tốt.
+- Biên dịch harness ARM64 dùng nguyên hàm present trong ZIP với driver mock,
+  chạy trên Thor; không tạo Vulkan device hoặc nạp module, không chạm stats.
+  Xác nhận8hành vi:2lần gọi, cùng info, cùng ảnh, cùng semaphore, đếm present
+  lặp thành FG, bỏ qua lỗi lần2, chọn3x vẫn2lần và1x gọi1lần.
+  E:\ThorNative\research\thor-dlss-source-review-test.txt
+  E:\ThorNative\work\source-review\thor_dlss_review_test.cpp
+- Đây là đánh giá nguồn, không xác nhận APK/.so đóng sẵn giống hệt nguồn,
+  và không phải benchmark hiệu năng/render thực tế.
+
+PHẦN DÙNG LẠI
+Ý tưởng UI, lưu config, chọn package và ô trạng thái. Phải sửa phép đo, lifecycle
+và quyền; làm rõ license trước khi phát hành lại. Không ghép double-present
+vào Thor Native FG hoặc gọi shader lọc đơn này là GSR2/DLSS.
+
+ĐỐI CHIẾU CHÍNH THỨC
+https://docs.vulkan.org/refpages/latest/refpages/source/vkQueuePresentKHR.html
+https://source.android.com/docs/core/graphics/implement-vulkan
+https://github.com/SnapdragonGameStudios/snapdragon-gsr/blob/main/sgsr/v2/README.md
