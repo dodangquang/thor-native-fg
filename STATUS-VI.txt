@@ -116,7 +116,7 @@ CẬP NHẬT BẢN0.3 — UPSCALE TỪ ẢNH RENDER THẤP + HUD GỌN
 - Tài nguyên theo command buffer; khôi phục compute pipeline/descriptor/push
   constants sau khi chèn. Giữ source crop và alpha. Chưa hỗ trợ mọi renderer,
   blit2/secondary/simultaneous command buffers hoặc binding state nâng cao.
--27kiểm thử GPU qua;18kiểm thử telemetry/HUD qua. Fixture640x360→1920x1080
+-27kiểm thử GPU qua;20kiểm thử telemetry/HUD qua. Fixture640x360→1920x1080
   dùng GPU timestamp cho copy+SGSR1: median0,913ms, n10 sau5warmup. Không gồm
   blit ra màn, FG, CPU hay latency, không phải benchmark game.
 - QA ngoài: ứng dụng chỉ blit bilinear; layer thay bằng GSR. Đọc nguyên ảnh
@@ -134,3 +134,26 @@ CẬP NHẬT BẢN0.3 — UPSCALE TỪ ẢNH RENDER THẤP + HUD GỌN
   trở thành live khi mở lại app. Trạng thái SR chi tiết nằm ở nút đọc trạng thái.
 - Chưa chứng minh lợi ích SR trong gameplay DroidDeck, cadence actual scanout,
   thêm latency hoặc chất lượng dài hạn. Mục tiêu đầy đủ chưa hoàn thành.
+
+CẬP NHẬT Ô FPS VÀ TIMESTAMP TRÌNH BÀY
+- Ô nổi chữ11sp, một dòng duy nhất: Gốc30|FG60; không thêm dòng SR/trạng thái.
+  Nút trong app đổi thành 'Hiện FPS gốc / FG'. Kéo để di chuyển vẫn hoạt động.
+- Bổ sung VK_GOOGLE_display_timing để dùng actualPresentTime khi hợp lệ.
+  Chỉ đếm một lần cho cùng timestamp; dữ liệu quá hạn không được coi là mới.
+  Khi thiếu timestamp hợp lệ, dùng ước tính có dấu≈.20kiểm thử HUD qua.
+-12kiểm thử timestamp/cadence qua: sắp xếp bản ghi, chống đếm đôi, dữ liệu
+  cũ, burst cadence, warmup và bỏ FG khi nguồn đã gần giới hạn màn hình.
+- Thêm desiredPresentTime để giãn nhịp khung. Nguồn30FPS trên cảnh mẫu thường
+  đạt khoảng60FPS; toàn log31,27s có P95 khoảng25,24ms, max84,12ms gồm cả
+  startup/QA/cut. Chưa đạt pacing hoàn hảo, chưa có presenter async.
+- Cảnh mẫu nguồn60: các cửa sổ ổn định ghi nguồn59,4FPS, trình bày118,9FPS,
+  khoảng59,4khung sinh/s; khoảng cách trung vị8,413ms. Nguồn120: giữ118,9FPS,
+  không sinh thêm và không ép nguồn xuống60FPS. Mỗi phiên chỉ khoảng6giây.
+- Không thấy VUID/SYNC/FATAL trong bốn log đã thu. Phiên paced vẫn qua3/3
+  so ảnh SGSR và3/3khôi phục compute state. Xem research/presentation-*.txt
+  và presentation-summary.json; không dùng thử tổng hợp thay benchmark game.
+- APK hiện tại SHA256:
+  5050463B73767A2E2422657FF7F6ECF752291E5099EEFA3A355A1EF2CD051594
+- Đã trả bốn GPU settings và target/enable/SR/validate về trước QA, xóa cờ
+  trace/pacing/demo_fps tạm, gỡ validation provider. Global debug.vulkan.layers
+  vẫn trống. DroidDeck PID28832 được giữ nguyên, không đóng phiên của người dùng.

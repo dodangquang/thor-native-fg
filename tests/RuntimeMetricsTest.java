@@ -23,6 +23,8 @@ public class RuntimeMetricsTest {
         check(!RuntimeMetrics.parse(version2.replace("sr_in_w=960 sr_in_h=540","sr_in_w=1920 sr_in_h=1080"),10000).hasUpscaling(),"same-size pass cannot claim SR in protocol2");
         check(RuntimeMetrics.parse(line.replace("v=1","v=2"),0)==null,"protocol2 without SR evidence rejected");
         check(!RuntimeMetrics.parse(version2,20000).fresh(20000),"reading an old buffered native log cannot make it appear live again");
+        check(RuntimeMetrics.parse(version2+" display_valid=1 display_fps=59.5",10000).hud().equals("Gốc 30 | FG 60"),"Vulkan presentation timestamp rate replaces the request estimate when valid");
+        check(RuntimeMetrics.parse(version2+" display_valid=0 display_fps=120",10000).hud().equals("Gốc 30 | FG ≈58"),"an invalid display measurement never inflates the HUD");
         check(RuntimeMetrics.parse(line.replace("v=1","v=9"),0)==null,"unknown protocol rejected");
         check(RuntimeMetrics.parse(line.replace("source_fps=30.0","source_fps=NaN"),0)==null,"NaN rejected");
         check(RuntimeMetrics.parse(line.replace("generated_fps=28.0","generated_fps=-1"),0)==null,"negative rate rejected");

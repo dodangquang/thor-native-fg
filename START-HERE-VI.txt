@@ -22,19 +22,24 @@ không được upscale. Xem 'Đọc trạng thái' để biết kích thước 
 nguồn Vulkan riêng; chưa xác nhận gameplay DroidDeck với render thấp.
 
 Ô FPS NHỎ
-Bấm 'Hiện ô FPS + trạng thái FG/SR', cấp quyền hiển thị trên ứng dụng khác.
+Bấm 'Hiện FPS gốc / FG', cấp quyền hiển thị trên ứng dụng khác.
 Khi đã cấp quyền, nút bật FG tự mở ô. Kéo để di chuyển, chạm để xem ý nghĩa
 số đo. Ẩn bằng nút trong app hoặc thông báo Thor.
-- Chỉ một dòng theo yêu cầu: 'Gốc30 | FG≈60'. Gốc là tốc độ gửi từ ứng dụng;
-  FG≈ là nguồn cộng yêu cầu present của ảnh nội suy, chưa phải FPS panel đã đo.
+- Chỉ một dòng theo yêu cầu: 'Gốc 30 | FG 60'. Gốc là tốc độ ứng dụng gửi
+  khung; FG là tổng FPS sau xử lý, gồm khung gốc và khung nội suy.
+- Nếu Vulkan cung cấp timestamp trình bày hợp lệ, FG dùng số đo đó. Dấu ≈
+  xuất hiện khi chỉ có ước tính từ tốc độ yêu cầu present, ví dụ 'FG ≈60'.
 - Thiếu dữ liệu mới của đúng PID: chuyển trạng thái chờ, không giữ FPS cũ.
 - Trạng thái SR để trong app. SR chỉ báoON khi pass dùng ảnh render thấp được
   submit cho image trình bày, không chỉ vì đã đánh dấu bật tính năng.
 
-Bản0.3 giữ cơ chế bỏ frame nội suy khi cut/flow kém.27kiểm thử GPU và18kiểm
+Bản0.3 giữ cơ chế bỏ frame nội suy khi cut/flow kém.27kiểm thử GPU và20kiểm
 thử giao thức HUD qua. Đọc ảnh GPU của pass chèn ngoài khớp GSR tham chiếu
 trong3frame, giữ đúng trạng thái compute của ứng dụng, không thấy lỗi validation.
 Module bootstrap không đổi; cập nhật APK0.3 không cần cài lại module/reboot.
+12kiểm thử timestamp/cadence qua. Cảnh mẫu nguồn khoảng59,4FPS đã đạt khoảng
+118,9FPS theo timestamp trình bày; nguồn đã119FPS thì bỏ FG, giữ tốc độ gốc.
+Đây là thử ngắn trên cảnh mẫu, chưa chứng minh lợi ích trong gameplay.
 
 Sau reboot, target và cờ active tự xóa. Chọn lại giả lập để bật thử nghiệm.
 

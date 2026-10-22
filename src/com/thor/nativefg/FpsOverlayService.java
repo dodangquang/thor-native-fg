@@ -41,7 +41,7 @@ public class FpsOverlayService extends Service {
             public boolean onTouch(View view,MotionEvent event){
                 if(event.getAction()==MotionEvent.ACTION_DOWN){downX=event.getRawX();downY=event.getRawY();oldX=position.x;oldY=position.y;dragged=false;return true;}
                 if(event.getAction()==MotionEvent.ACTION_MOVE){float dx=event.getRawX()-downX,dy=event.getRawY()-downY;if(Math.abs(dx)+Math.abs(dy)>dp(5))dragged=true;if(dragged){position.x=oldX+(int)dx;position.y=oldY+(int)dy;clampPosition();windows.updateViewLayout(hud,position);}return true;}
-                if(event.getAction()==MotionEvent.ACTION_UP){if(dragged)getPreferences().edit().putInt("hud_x",position.x).putInt("hud_y",position.y).apply();else{view.performClick();Toast.makeText(FpsOverlayService.this,"Gốc = khung ứng dụng gửi vào engine. FG ≈ gốc + yêu cầu khung nội suy gửi thêm; chưa phải FPS panel đã đo. Xem trạng thái SR trong app.",Toast.LENGTH_LONG).show();}return true;}
+                if(event.getAction()==MotionEvent.ACTION_UP){if(dragged)getPreferences().edit().putInt("hud_x",position.x).putInt("hud_y",position.y).apply();else{view.performClick();Toast.makeText(FpsOverlayService.this,"Gốc = khung ứng dụng gửi vào engine. FG dùng timestamp trình bày Vulkan khi có; dấu ≈ là ước tính từ yêu cầu gửi khung. Xem trạng thái SR trong app.",Toast.LENGTH_LONG).show();}return true;}
                 return true;
             }});
         try{windows.addView(hud,position);}catch(RuntimeException failure){stopSelf();return;}

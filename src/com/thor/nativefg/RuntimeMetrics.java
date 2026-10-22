@@ -10,6 +10,8 @@ final class RuntimeMetrics {
     final boolean eligible;
     final boolean spatial;
     final int spatialWidth,spatialHeight;
+    final boolean measuredDisplay;
+    final double displayedFps;
     final double sourceFps, generatedFps;
     final long receivedAt;
 
@@ -21,9 +23,11 @@ final class RuntimeMetrics {
         receivedAt=version2?Long.parseLong(values.get("uptime_ms")):now;
         spatial=version2?integer(values,"sr")==1:true;
         spatialWidth=version2?integer(values,"sr_in_w"):inputWidth;spatialHeight=version2?integer(values,"sr_in_h"):inputHeight;
+        measuredDisplay="1".equals(values.get("display_valid"));displayedFps=measuredDisplay?number(values,"display_fps"):0;
         if(pid<=0||inputWidth<=0||inputHeight<=0||outputWidth<=0||outputHeight<=0||sourceFps<0||generatedFps<0||sourceFps>2000||generatedFps>4000)
             throw new IllegalArgumentException("Invalid engine telemetry");
         if(spatial&&(spatialWidth<=0||spatialHeight<=0))throw new IllegalArgumentException("Invalid SR dimensions");
+        if(displayedFps<0||displayedFps>4000)throw new IllegalArgumentException("Invalid presentation rate");
     }
     static RuntimeMetrics parse(String line,long now) {
         int offset=line.indexOf("THOR_METRICS ");if(offset<0)return null;
@@ -39,7 +43,7 @@ final class RuntimeMetrics {
     boolean hasUpscaling(){return spatial&&outputWidth>spatialWidth&&outputHeight>spatialHeight;}
     boolean fresh(long now){return now>=receivedAt&&now-receivedAt<3500;}
     String hud() {
-        return eligible?String.format(Locale.US,"Gốc %.0f | FG ≈%.0f",sourceFps,sourceFps+generatedFps):String.format(Locale.US,"Gốc %.0f | FG —",sourceFps);
+        return eligible?(measuredDisplay?String.format(Locale.US,"Gốc %.0f | FG %.0f",sourceFps,displayedFps):String.format(Locale.US,"Gốc %.0f | FG ≈%.0f",sourceFps,sourceFps+generatedFps)):String.format(Locale.US,"Gốc %.0f | FG —",sourceFps);
     }
     String detail() {
         return hasUpscaling()?String.format(Locale.US,"GSR1 ON · %d×%d → %d×%d",spatialWidth,spatialHeight,outputWidth,outputHeight):"SR: chưa upscale";
