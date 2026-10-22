@@ -1,14 +1,18 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.thor.nativefg" android:versionCode="3" android:versionName="0.3-experimental">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.thor.nativefg" android:versionCode="4" android:versionName="0.4-experimental">
   <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="33"/>
   <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
   <uses-feature android:name="android.hardware.vulkan.level" android:version="1" android:required="true"/>
-  <queries><intent><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent></queries>
+  <queries><intent><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent><intent><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.HOME"/></intent></queries>
   <application android:label="Thor Native FG" android:theme="@android:style/Theme.Material.NoActionBar" android:allowBackup="false" android:debuggable="true" android:extractNativeLibs="true">
     <meta-data android:name="com.android.graphics.injectLayers.enable" android:value="true"/>
     <activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity>
     <activity android:name=".DemoActivity" android:label="Thor Native GPU demo" android:screenOrientation="landscape" android:configChanges="orientation|screenSize|keyboardHidden" android:exported="false"/>
     <service android:name=".FpsOverlayService" android:exported="false"/>
+    <receiver android:name=".AutoReceiver" android:exported="false">
+      <intent-filter><action android:name="android.intent.action.MY_PACKAGE_REPLACED"/></intent-filter>
+      <intent-filter><action android:name="android.intent.action.PACKAGE_ADDED"/><action android:name="android.intent.action.PACKAGE_REMOVED"/><action android:name="android.intent.action.PACKAGE_REPLACED"/><data android:scheme="package"/></intent-filter>
+    </receiver>
   </application>
 </manifest>

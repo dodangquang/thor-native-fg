@@ -17,6 +17,7 @@ public class FpsOverlayService extends Service {
     private final Handler main=new Handler(Looper.getMainLooper());
     private WindowManager windows;private WindowManager.LayoutParams position;private TextView hud;
     private volatile boolean stopped=false,active=false;private volatile String target="",error="";
+    private volatile boolean automatic=false;
     private volatile int targetPid=0;private volatile RuntimeMetrics metrics;
     private volatile java.lang.Process logProcess;private Thread logThread;
 
@@ -54,16 +55,17 @@ public class FpsOverlayService extends Service {
     @Override public void onConfigurationChanged(android.content.res.Configuration config){super.onConfigurationChanged(config);if(hud!=null){clampPosition();windows.updateViewLayout(hud,position);}}
     private void readConfig(String line){
         try{
-            String selected="",pidText="0",on="";
+            String selected="",pidText="0",on="",auto="";
             for(String token:line.substring(12).trim().split("\\s+")){
                 if(token.startsWith("target="))selected=token.substring(7);
                 else if(token.startsWith("pid="))pidText=token.substring(4);
                 else if(token.startsWith("active="))on=token.substring(7);
+                else if(token.startsWith("auto="))auto=token.substring(5);
             }
             if(!selected.isEmpty()&&!selected.matches("[A-Za-z0-9_.]+"))return;
             int pid=pidText.matches("[0-9]+")?Integer.parseInt(pidText):0;
             if(!selected.equals(target)||pid!=targetPid)metrics=null;
-            target=selected;targetPid=pid;active="1".equals(on);error="";
+            target=selected;targetPid=pid;active="1".equals(on);automatic="1".equals(auto);error="";
         }catch(RuntimeException invalid){/* Ignore incomplete monitor output. */}
     }
     private void readLogs(){
@@ -73,9 +75,11 @@ public class FpsOverlayService extends Service {
             String monitor="logcat -v brief -T 1 -s ThorNativeLayer:I '*:S' &\nlog_pid=$!\n"+
                 "( while :; do\n game_active=$(getprop debug.thorfg.enabled)\n game_target=$(getprop debug.thorfg.target)\n"+
                 " if [ \"$game_active\" = 1 ] && [ -z \"$game_target\" ]; then game_target=$(settings get global gpu_debug_app); fi\n"+
+                " auto_mode=$(getprop debug.thorfg.auto)\n if [ \"$auto_mode\" = 1 ]; then\n game_target=$("+AutoMode.foregroundScript()+")\n game_active=0\n"+
+                " case \"$game_target\" in ''|null|*[!A-Za-z0-9_.]*) game_target='';; *) if "+AutoMode.allowedScript()+"; then game_active=1; else game_target=''; fi;; esac\n fi\n"+
                 " case \"$game_target\" in ''|null|*[!A-Za-z0-9_.]*) game_target='';; esac\n"+
                 " game_pid=0\n if [ \"$game_active\" = 1 ] && [ -n \"$game_target\" ]; then game_pid=$(pidof -s \"$game_target\"); fi\n"+
-                " printf 'THOR_CONFIG target=%s active=%s pid=%s\\n' \"$game_target\" \"$game_active\" \"$game_pid\"\n sleep 2\n done ) &\npoll_pid=$!\n"+
+                " printf 'THOR_CONFIG target=%s active=%s pid=%s auto=%s\\n' \"$game_target\" \"$game_active\" \"$game_pid\" \"$auto_mode\"\n sleep 2\n done ) &\npoll_pid=$!\n"+
                 "trap 'kill \"$log_pid\" \"$poll_pid\" 2>/dev/null' EXIT HUP INT TERM\nIFS= read -r stop_command\n";
             java.lang.Process process=new ProcessBuilder("su","-c",monitor).redirectErrorStream(true).start();logProcess=process;
             if(stopped){process.getOutputStream().close();return;}
@@ -89,6 +93,7 @@ public class FpsOverlayService extends Service {
     private final Runnable refresh=new Runnable(){public void run(){
         if(stopped||hud==null)return;
         RuntimeMetrics value=metrics;
+        hud.setVisibility(automatic&&(!active||targetPid==0)?View.GONE:View.VISIBLE);
         if(!error.isEmpty())hud.setText("Gốc — | FG —");
         else if(!active)hud.setText("Gốc — | FG TẮT");
         else if(targetPid==0)hud.setText("Gốc — | FG —");

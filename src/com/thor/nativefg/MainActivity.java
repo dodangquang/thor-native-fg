@@ -18,6 +18,9 @@ public class MainActivity extends Activity {
     private TextView status;
     private Spinner packages;
     private CheckBox upscale;
+    private Switch automatic;
+    private boolean syncingAuto=false;
+    private boolean syncingSr=false;
     private final ArrayList<String> ids=new ArrayList<>();
     private final java.util.concurrent.ExecutorService worker=Executors.newSingleThreadExecutor();
     private final String[] keys={"enable_gpu_debug_layers","gpu_debug_app","gpu_debug_layers","gpu_debug_layer_app"};
@@ -28,13 +31,18 @@ public class MainActivity extends Activity {
         LinearLayout page=new LinearLayout(this);page.setOrientation(1);page.setPadding(36,28,36,24);page.setBackgroundColor(Color.rgb(12,20,33));
         ScrollView scroll=new ScrollView(this);scroll.addView(page);setContentView(scroll);
         TextView title=text("THOR NATIVE FG",26);title.setTextColor(Color.rgb(87,222,212));page.addView(title);
-        page.addView(text("Frame gen độc lập + GSR 1 • Bản thử nghiệm 0.3",16));
+        page.addView(text("Frame gen độc lập + GSR 1 • Bản thử nghiệm 0.4",16));
         page.addView(text("Không phải NVIDIA DLSS. Chưa xác nhận tương thích mọi giả lập hay tăng FPS thực tế. Layer hỗ trợ thử nghiệm Vulkan FIFO, SDR RGBA/BGRA8; OpenGL ES và driver nạp riêng có thể không đi qua layer.",15));
         page.addView(text("Engine FG thuộc Thor Native FG. Khi thử, tắt FG tích hợp trong giả lập để tránh nội suy hai lần. GSR 1 xử lý ảnh render thấp khi đường hiển thị Vulkan phù hợp; hãy đặt độ phân giải thấp trong game/giả lập. Chỉ báo ON khi có pass upscale được gửi thật.",15));
         button(page,"Chạy cảnh mẫu Vulkan · GSR 1 + FG 2x",()->startActivity(new Intent(this,DemoActivity.class)));
-        page.addView(text("Chọn giả lập / ứng dụng (mỗi lần một tiến trình)",17));
-        packages=new Spinner(this);loadPackages();page.addView(packages);
         upscale=new CheckBox(this);upscale.setText("Upscale GSR 1 khi game render độ phân giải thấp");upscale.setTextColor(Color.rgb(223,233,246));upscale.setChecked(getSharedPreferences("thor",MODE_PRIVATE).getBoolean("upscale",true));page.addView(upscale);
+        upscale.setOnCheckedChangeListener((view,checked)->{if(syncingSr)return;if(AutoMode.requested(this)){runJob(()->AutoMode.configure(this,true,checked)+"\nĐổi SR: mở lại giả lập nếu các lệnh GPU cũ vẫn được dùng.");}else AutoMode.preferences(this).edit().putBoolean("upscale",checked).apply();});
+        automatic=new Switch(this);automatic.setText("Tự bật FG khi mở game / giả lập");automatic.setTextColor(Color.rgb(223,233,246));automatic.setChecked(AutoMode.requested(this));page.addView(automatic);
+        automatic.setOnCheckedChangeListener((view,checked)->{if(syncingAuto)return;if(busy){syncAutoSwitch();return;}final boolean sr=upscale.isChecked();runJob(()->{String result=AutoMode.configure(this,checked,sr);if(checked)runOnUiThread(()->showOverlay());return result;});});
+        button(page,"Chọn game / giả lập tự động",()->editAutoApplications());
+        page.addView(text("Tự động nhận diện các giả lập quen thuộc và ứng dụng khai báo là game. Có thể thêm/loại app trong danh sách. Chế độ này cần bootstrap 0.2; ứng dụng đang chạy cần thoát/mở lại một lần. Không tự đóng game.",14));
+        page.addView(text("Chọn ứng dụng khi bật thủ công",17));
+        packages=new Spinner(this);loadPackages();page.addView(packages);
         button(page,"Bật FG của Thor và mở ứng dụng",()->enableSelected());
         button(page,"Hiện FPS gốc / FG",()->showOverlay());
         button(page,"Ẩn ô FPS (giữ cấu hình FG)",()->stopService(new Intent(this,FpsOverlayService.class)));
@@ -43,7 +51,7 @@ public class MainActivity extends Activity {
         status=text("Chọn ứng dụng → bật FG của Thor → cấp root → lưu game, thoát hẳn rồi mở lại giả lập và chọn Vulkan. Cấu hình thành công chưa chứng minh FG/SR đã chạy.\n\nÔ FPS chỉ hiện ‘Gốc’ và ‘FG’. Gốc là tốc độ ứng dụng gửi khung; FG là FPS sau xử lý, dùng timestamp trình bày Vulkan khi có. Dấu ≈ cho biết số ước tính từ yêu cầu gửi khung. Thiếu dữ liệu mới thì ô chuyển sang chờ. Kéo để di chuyển; chạm để xem ý nghĩa số đo.\n\nBản 0.3 thử GSR 1 ngay ở bước phóng ảnh Vulkan cuối: ví dụ game render 960×540, xuất 1920×1080. App không tự đổi độ phân giải game. Đường hiển thị khác hoặc ảnh đã bằng cỡ màn hình sẽ báo ‘chưa upscale’. Đây là spatial SR, chưa phải DLSS/temporal SR. Khi đổi SR hoặc tắt layer, mở lại giả lập để bỏ các lệnh GPU đã ghi trước đó.\n\nFG có loại bỏ cặp cut/chuyển động kém tin cậy. NPU, GSR 2, FSR 3 và hệ số 3x chưa được tích hợp.",14);page.addView(status);
         String previous=getSharedPreferences("thor",MODE_PRIVATE).getString("selected_package","");for(int i=0;i<ids.size();i++)if(ids.get(i).equals(previous)){packages.setSelection(i);break;}
         if(getIntent().getBooleanExtra("demo",false)){Intent demo=new Intent(this,DemoActivity.class);demo.putExtra("mode",getIntent().getIntExtra("mode",2));startActivity(demo);}
-        if(getIntent().getBooleanExtra("hud",false))showOverlay();
+        if(getIntent().getBooleanExtra("hud",false)||(AutoMode.requested(this)&&AutoMode.preferences(this).getBoolean("hud_visible",false)&&Settings.canDrawOverlays(this)))showOverlay();
     }
     private TextView text(String value,int size){TextView v=new TextView(this);v.setText(value);v.setTextSize(size);v.setTextColor(Color.rgb(223,233,246));v.setPadding(0,10,0,16);return v;}
     private void button(LinearLayout page,String label,Runnable action){Button b=new Button(this);b.setText(label);page.addView(b);b.setOnClickListener(v->{if(!busy)action.run();});}
@@ -56,20 +64,26 @@ public class MainActivity extends Activity {
         ArrayList<String> labels=new ArrayList<>();for(String id:sorted){ids.add(id);labels.add((isEmulator(id)?"★ ":"")+unique.get(id)+"\n"+id);}
         ArrayAdapter<String> adapter=new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,labels);packages.setAdapter(adapter);
     }
-    private boolean isEmulator(String id){String x=id.toLowerCase(Locale.ROOT);for(String s:new String[]{"droiddeck","eden","winlator","ppsspp","nethersx","aethersx","dolphin","retroarch","citron","yuzu","sudachi","citra","azahar","lime3ds","duckstation","mupen","redream","flycast","vita3k","cosmic","suyu","strato","skyline","melonds","drastic","uzuy","cemi"})if(x.contains(s))return true;return false;}
+    private boolean isEmulator(String id){return GameRules.isEmulator(id);}
+    private void syncAutoSwitch(){syncingAuto=true;automatic.setChecked(AutoMode.requested(this));syncingAuto=false;}
+    private void editAutoApplications(){
+        List<AutoMode.Entry> entries=AutoMode.applications(this);String[] labels=new String[entries.size()];boolean[] selected=new boolean[entries.size()];
+        for(int i=0;i<entries.size();i++){AutoMode.Entry entry=entries.get(i);labels[i]=entry.label+"\n"+entry.id;selected[i]=entry.selected;}
+        new AlertDialog.Builder(this).setTitle("Tự bật FG cho ứng dụng đã chọn")
+            .setMultiChoiceItems(labels,selected,(dialog,which,checked)->entries.get(which).selected=checked)
+            .setNegativeButton("Hủy",null).setPositiveButton("Lưu",(dialog,which)->{AutoMode.saveSelection(this,entries);if(AutoMode.requested(this)){final boolean sr=upscale.isChecked();runJob(()->AutoMode.configure(this,true,sr));}else status.setText("Đã lưu danh sách. Bật công tắc tự động để sử dụng.");}).show();
+    }
     private void showOverlay(){
         if(!Settings.canDrawOverlays(this)){
             status.setText("Bật ‘Cho phép hiển thị trên ứng dụng khác’ cho Thor Native FG để hiện ô FPS nhỏ. Sau đó quay lại ứng dụng.");
             startActivityForResult(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+getPackageName())),104);return;
         }
         if(Build.VERSION.SDK_INT>=33&&checkSelfPermission("android.permission.POST_NOTIFICATIONS")!=PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"},105);
-        startForegroundService(new Intent(this,FpsOverlayService.class));
+        getSharedPreferences("thor",MODE_PRIVATE).edit().putBoolean("hud_visible",true).apply();startForegroundService(new Intent(this,FpsOverlayService.class));
     }
     @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if(request==104&&Settings.canDrawOverlays(this))showOverlay();}
     private String root(String script)throws Exception{
-        java.lang.Process p=new ProcessBuilder("su","-c",script).redirectErrorStream(true).start();StringBuilder out=new StringBuilder();
-        try(BufferedReader r=new BufferedReader(new InputStreamReader(p.getInputStream()))){String line;while((line=r.readLine())!=null){out.append(line).append('\n');if(out.length()>64000)throw new IOException("Root output too large");}}
-        int code=p.waitFor();if(code!=0)throw new IOException("Root exit "+code+": "+out);return out.toString().trim();
+        return RootShell.run(script);
     }
     private File backup(){return new File(getFilesDir(),"settings-before.json");}
     private void saveBackup()throws Exception{
@@ -87,6 +101,7 @@ public class MainActivity extends Activity {
             boolean module="yes".equals(root("if [ -f "+MODULE+"/module.prop ] && [ ! -f "+MODULE+"/disable ]; then echo yes; fi"));
             if(!debuggable&&!module)throw new IOException("Ứng dụng release này cần module Zygisk Thor Native FG và một lần khởi động lại. Chưa thể bật chỉ bằng quyền su. Module nằm tại E:\\ThorNative\\ThorNativeFG-Zygisk-experimental.zip trên PC.");
             saveBackup();
+            if(AutoMode.requested(this))AutoMode.configure(this,false,sr);
             if(id.length()>90)throw new IOException("Package name too long for Android property");
             if(module)root("setprop debug.thorfg.target "+id);
             root("settings put global enable_gpu_debug_layers 1 && settings put global gpu_debug_app "+id+" && settings put global gpu_debug_layers VK_LAYER_THOR_native_fg && settings put global gpu_debug_layer_app com.thor.nativefg && setprop debug.thorfg.sr "+(sr?"1":"0")+" && setprop debug.thorfg.enabled 1");
@@ -97,6 +112,7 @@ public class MainActivity extends Activity {
         });
     }
     private void restore()throws Exception{
+        AutoMode.configure(this,false,upscale.isChecked());
         root("setprop debug.thorfg.enabled 0; setprop debug.thorfg.sr 0; setprop debug.thorfg.target ''");
         if(!backup().exists())return;
         ByteArrayOutputStream bytes=new ByteArrayOutputStream();try(FileInputStream in=new FileInputStream(backup())){byte[] b=new byte[4096];int n;while((n=in.read(b))>0)bytes.write(b,0,n);}
@@ -107,9 +123,10 @@ public class MainActivity extends Activity {
         root("setprop debug.thorfg.sr "+("1".equals(old.optString("thor_sr",""))?"1":"0"));
     }
     private String readStatus()throws Exception{
-        String target=root("settings get global gpu_debug_app");
-        String config=target+"\n"+root("getprop debug.thorfg.enabled");
-        if(!target.matches("[A-Za-z0-9_.]+")||target.equals("null"))return "Chưa chọn ứng dụng cho layer.";
+        boolean auto=AutoMode.requested(this);String autoStatus=auto?"Tự động: đã yêu cầu; bootstrap đang chạy="+root("getprop sys.thorfg.bootstrap")+" (cần 2).\n":"";
+        String target=auto?root("game_target=$("+AutoMode.foregroundScript()+"); if "+AutoMode.allowedScript()+"; then printf %s \"$game_target\"; fi"):root("settings get global gpu_debug_app");
+        String config=autoStatus+target+"\n"+root("getprop "+(auto?"debug.thorfg.auto":"debug.thorfg.enabled"));
+        if(!target.matches("[A-Za-z0-9_.]+")||target.equals("null"))return autoStatus+(auto?"Đang chờ game/giả lập trong danh sách ở trước.":"Chưa chọn ứng dụng cho layer.");
         String pid=root("pidof -s "+target+" || true");
         if(!pid.matches("[0-9]+"))return "Target: "+target+"\nChưa có tiến trình đang chạy. Mở lại giả lập rồi kiểm tra.";
         String logs=root("logcat -d --pid="+pid+" -t 3000 -s ThorNativeBootstrap:I ThorNativeLayer:I ThorNativeDemo:I '*:S'");
@@ -119,5 +136,5 @@ public class MainActivity extends Activity {
         return summary+"\n\nTarget / active / PID:\n"+config+"\n"+pid+"\n\n"+logs+"\n\nNếu chưa có INSTANCE/DEVICE/SWAPCHAIN thì chưa xác nhận layer hoạt động. COUNTERS là số yêu cầu present; không phải FPS hiển thị hay độ trễ đã đo.";
     }
     interface Work {String run()throws Exception;}
-    private void runJob(Work work){busy=true;status.setText("Đang xử lý… Nếu Magisk hỏi, cần cấp quyền root để thay cấu hình layer.");worker.execute(()->{String result;try{result=work.run();}catch(Exception e){result="Lỗi: "+e.getMessage();}final String value=result;runOnUiThread(()->{busy=false;status.setText(value);});});}
+    private void runJob(Work work){busy=true;upscale.setEnabled(false);automatic.setEnabled(false);status.setText("Đang xử lý… Nếu Magisk hỏi, cần cấp quyền root để thay cấu hình layer.");worker.execute(()->{String result;try{result=work.run();}catch(Exception e){result="Lỗi: "+e.getMessage();}final String value=result;runOnUiThread(()->{busy=false;syncAutoSwitch();syncingSr=true;upscale.setChecked(AutoMode.preferences(this).getBoolean("upscale",true));syncingSr=false;upscale.setEnabled(true);automatic.setEnabled(true);status.setText(value);});});}
 }

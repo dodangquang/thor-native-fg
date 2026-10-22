@@ -12,6 +12,7 @@
  X(CreateCommandPool) X(DestroyCommandPool) X(AllocateCommandBuffers) X(FreeCommandBuffers) X(ResetCommandPool) X(BeginCommandBuffer) X(EndCommandBuffer) \
  X(CmdPipelineBarrier) X(CmdBlitImage) X(CmdCopyImage) X(CmdCopyImageToBuffer) X(CmdCopyBufferToImage) X(CmdClearColorImage) X(CmdFillBuffer) X(CmdBindPipeline) X(CmdBindDescriptorSets) X(CmdPushConstants) X(CmdDispatch) \
  X(CreateSemaphore) X(DestroySemaphore) X(CreateFence) X(DestroyFence) X(WaitForFences) X(ResetFences) X(QueueSubmit) X(QueueWaitIdle) X(DeviceWaitIdle) \
+ X(CreateQueryPool) X(DestroyQueryPool) X(GetQueryPoolResults) X(CmdResetQueryPool) X(CmdWriteTimestamp) \
  X(CreateSwapchainKHR) X(DestroySwapchainKHR) X(GetSwapchainImagesKHR) X(AcquireNextImageKHR) X(QueuePresentKHR) X(GetDeviceQueue) X(GetDeviceQueue2) X(DestroyDevice)
 struct Api {
  VkDevice device{};

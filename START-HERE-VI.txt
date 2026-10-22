@@ -1,6 +1,26 @@
-THOR NATIVE FG 0.3 — BẢN THỬ NGHIỆM ĐỘC LẬP
+THOR NATIVE FG 0.4 — BẢN THỬ NGHIỆM ĐỘC LẬP
 
 Mở ứng dụng Thor Native FG trên Thor.
+CHẾ ĐỘ TỰ ĐỘNG (ĐÃ BẬT TRÊN THOR)
+1. Giữ bật 'Tự bật FG khi mở game / giả lập'. Chỉnh các ứng dụng được chọn
+   trong 'Chọn game / giả lập tự động'. Hiện nhận16ứng dụng đã cài trên máy.
+2. Sau đó mở game/giả lập từ launcher bình thường; không cần mở Thor mỗi lần.
+   Với đường hỗ trợ hiện tại, chọn renderer Vulkan và tắt FG tích hợp khác.
+3. Ứng dụng đã mở trong lúc cập nhật APK cần lưu và thoát/mở lại một lần.
+   Layer nạp lúc tiến trình khởi động; app không âm thầm force-stop game.
+4. Ô nhỏ Gốc|FG tự hiện trên ứng dụng được chọn, ẩn trên ứng dụng thường.
+   FG là tổng FPS sau xử lý. Nguồn đã gần119FPS thì bỏ nội suy để giữ tốc độ.
+5. Tắt công tắc để ngừng tự động; lựa chọn được giữ qua reboot. 'Tắt layer'
+   cũng tắt tự động. Nút bật thủ công chuyển sang chế độ chọn một ứng dụng.
+
+Nhận diện dựa trên package giả lập và metadata game, không đoán từ tải CPU.
+Game thiếu metadata có thể thêm tay; launcher thường/benchmark không được
+chọn mặc định. Danh sách cập nhật khi cài/gỡ app. OpenGL ES/custom loader
+chưa được tự biến thành Vulkan; tự chọn app không chứng minh renderer đã chạy FG.
+APK0.4 và bootstrap0.2 đã cài, reboot theo phép người dùng và kiểm thử trên
+Thor. Không cần reboot thêm để dùng bản hiện tại. Xem STATUS-VI.txt.
+
+CHẾ ĐỘ THỦ CÔNG / CẢNH MẪU
 1. Chạy cảnh mẫu để so sánh Bilinear, GSR1 và GSR1+FG.
 2. FG thuộc engine Thor; tắt FG tích hợp trong giả lập khi thử để tránh nội suy
    hai lần. Không cần Win-FG/LSFG/DLL của DroidDeck.
@@ -36,12 +56,14 @@ số đo. Ẩn bằng nút trong app hoặc thông báo Thor.
 Bản0.3 giữ cơ chế bỏ frame nội suy khi cut/flow kém.27kiểm thử GPU và20kiểm
 thử giao thức HUD qua. Đọc ảnh GPU của pass chèn ngoài khớp GSR tham chiếu
 trong3frame, giữ đúng trạng thái compute của ứng dụng, không thấy lỗi validation.
-Module bootstrap không đổi; cập nhật APK0.3 không cần cài lại module/reboot.
+Bootstrap0.2 bổ sung nạp layer theo danh sách ở thời điểm khởi động app.
+Chuyển từ bootstrap0.1 lên0.2 cần reboot; bước này đã hoàn tất trên Thor.
 12kiểm thử timestamp/cadence qua. Cảnh mẫu nguồn khoảng59,4FPS đã đạt khoảng
 118,9FPS theo timestamp trình bày; nguồn đã119FPS thì bỏ FG, giữ tốc độ gốc.
 Đây là thử ngắn trên cảnh mẫu, chưa chứng minh lợi ích trong gameplay.
 
-Sau reboot, target và cờ active tự xóa. Chọn lại giả lập để bật thử nghiệm.
+Sau reboot, target/cờ thủ công tự xóa; chế độ tự động khôi phục từ cấu hình
+root nếu đã bật. Không sửa global debug.vulkan.layers.
 
 GIỚI HẠN
 Không phải DLSS, không cam kết120FPS/không bóng ma/độ trễ1–3ms. Chưa hỗ trợ

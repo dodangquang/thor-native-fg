@@ -49,6 +49,8 @@ $common=@('-std=c++17','-O2','-fPIC','-I',"$build/generated",'-I',"$root/native"
 & $cc @common -shared "$root/native/engine.cpp" "$root/native/demo.cpp" -o "$build/lib/arm64-v8a/libthor_demo.so" -landroid -llog -lvulkan '-Wl,-z,max-page-size=16384';Check 'Vulkan demo'
 & $cc @common "$root/native/engine.cpp" "$root/native/selftest.cpp" -o "$build/thor-selftest" -lvulkan -llog;Check 'GPU selftest'
 & $cc @common "$root/tests/presentation_test.cpp" -o "$build/thor-presentation-test";Check 'Presentation timing selftest'
+& $cc @common "$root/tests/auto_config_test.cpp" -o "$build/thor-auto-config-test";Check 'Automatic activation configuration selftest'
+& $cc @common "$root/tests/auto_ipc_test.cpp" -o "$build/thor-auto-ipc-test" -ldl;Check 'Automatic activation companion integration selftest'
 New-Item -ItemType Directory -Force -Path "$root/module/zygisk" | Out-Null
 & $cc @common -shared "$root/native/zygisk.cpp" -o "$root/module/zygisk/arm64-v8a.so" -llog '-Wl,-z,max-page-size=16384';Check 'Zygisk bootstrap'
 # Zip entries must use '/', including when built on Windows (Magisk extracts on Linux).

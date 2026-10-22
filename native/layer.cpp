@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <unistd.h>
 #include <time.h>
+#include <cstdlib>
 #define LOG(...) __android_log_print(ANDROID_LOG_INFO,"ThorNativeLayer",__VA_ARGS__)
 #define EXPORT extern "C" __attribute__((visibility("default")))
 static const char* layerName="VK_LAYER_THOR_native_fg";
@@ -30,6 +31,10 @@ struct Swap {
  bool timing=false;uint32_t presentID=0;PresentationWindow presentation;
  std::unordered_map<uint32_t,bool> pendingPresents;
  SourceCadence cadence;uint64_t refreshNs=16666667,lastRealDesired=0,rateSkipped=0;
+ VkFence workDone{};bool workPending=false;
+ VkQueryPool queries{};uint32_t timestampBits=0;bool outputTimed=false;
+ uint32_t costFrames=0,inputGpuSamples=0,outputGpuSamples=0;
+ double inputGpuTotal=0,outputGpuTotal=0,qualityWaitTotal=0,previousWaitTotal=0,presentTotal=0,callTotal=0;
 };
 struct Device {
  VkDevice handle{};VkPhysicalDevice physical{};std::shared_ptr<Instance> instance;Api a;
@@ -41,6 +46,7 @@ struct Device {
  bool spatialDiagnostic=false;
  PFN_vkGetPastPresentationTimingGOOGLE pastTiming{};
  PFN_vkGetRefreshCycleDurationGOOGLE refreshTiming{};
+ float timestampPeriod=0;
 };
 struct Queue { std::shared_ptr<Device> device;uint32_t family; };
 static std::mutex globalMutex;
@@ -49,8 +55,9 @@ static std::unordered_map<void*,std::shared_ptr<Device>> devices;
 static std::unordered_map<VkQueue,Queue> queues;
 static std::shared_ptr<Device> deviceFor(VkDevice device){std::lock_guard<std::mutex> l(globalMutex);auto i=devices.find(key(device));return i==devices.end()?nullptr:i->second;}
 static std::shared_ptr<Instance> instanceFor(const void* instance){std::lock_guard<std::mutex> l(globalMutex);auto i=instances.find(key(instance));return i==instances.end()?nullptr:i->second;}
-static bool enabled(){char value[PROP_VALUE_MAX]{};__system_property_get("debug.thorfg.enabled",value);return strcmp(value,"1")==0;}
-static bool srEnabled(){char value[PROP_VALUE_MAX]{};__system_property_get("debug.thorfg.sr",value);return strcmp(value,"1")==0;}
+static bool autoProcess(){const char* selected=std::getenv("THOR_FG_AUTO_MATCH");return selected&&strcmp(selected,"1")==0;}
+static bool enabled(){char value[PROP_VALUE_MAX]{};__system_property_get(autoProcess()?"debug.thorfg.auto":"debug.thorfg.enabled",value);return strcmp(value,"1")==0;}
+static bool srEnabled(){char value[PROP_VALUE_MAX]{};__system_property_get(autoProcess()?"debug.thorfg.auto_sr":"debug.thorfg.sr",value);return strcmp(value,"1")==0;}
 #include "sr_hooks.inc"
 #include "presentation_hooks.inc"
 static void reportMetrics(Swap& s,uint32_t qualityFlags,double blockingMs){
@@ -61,15 +68,19 @@ static void reportMetrics(Swap& s,uint32_t qualityFlags,double blockingMs){
  // These are incoming and generated PRESENT REQUEST rates. Neither rate is a
  // scanout measurement. Keep dimensions in the protocol so the HUD cannot
  // mislabel the current same-size filter as active super resolution.
- LOG("THOR_METRICS v=2 pid=%d swap=%llu eligible=%d in_w=%u in_h=%u out_w=%u out_h=%u source_fps=%.2f generated_fps=%.2f sources=%llu generated=%llu cuts=%llu holds=%llu flow_skips=%llu flags=%u blocking_ms=%.3f sr=%d sr_in_w=%u sr_in_h=%u sr_presents=%llu uptime_ms=%llu display_valid=%d display_fps=%.2f display_generated_fps=%.2f display_samples=%zu gap_median_ms=%.3f gap_p95_ms=%.3f gap_max_ms=%.3f rate_skips=%llu",
+ LOG("THOR_METRICS v=2 pid=%d swap=%llu eligible=%d in_w=%u in_h=%u out_w=%u out_h=%u source_fps=%.2f generated_fps=%.2f sources=%llu generated=%llu cuts=%llu holds=%llu flow_skips=%llu flags=%u blocking_ms=%.3f sr=%d sr_in_w=%u sr_in_h=%u sr_presents=%llu uptime_ms=%llu display_valid=%d display_fps=%.2f display_generated_fps=%.2f display_samples=%zu gap_median_ms=%.3f gap_p95_ms=%.3f gap_max_ms=%.3f rate_skips=%llu fg_gpu_input_ms=%.3f fg_gpu_output_ms=%.3f fg_gpu_input_samples=%u fg_gpu_output_samples=%u fg_cpu_quality_wait_ms=%.3f fg_cpu_previous_wait_ms=%.3f fg_cpu_present_ms=%.3f fg_cpu_call_ms=%.3f fg_cost_frames=%u presenter=fence",
   getpid(),(unsigned long long)(uintptr_t)s.handle,s.supported&&!s.disabled,
   s.extent.width,s.extent.height,s.extent.width,s.extent.height,
   (s.sources-s.metricsSources)/seconds,(s.generated-s.metricsGenerated)/seconds,
   (unsigned long long)s.sources,(unsigned long long)s.generated,
   (unsigned long long)s.cutSkipped,(unsigned long long)s.holdSkipped,(unsigned long long)s.flowSkipped,qualityFlags,blockingMs,
   s.spatialActive,s.spatialInput.width,s.spatialInput.height,(unsigned long long)s.spatialPresents,(unsigned long long)uptime,
-  display.valid,display.fps,display.generatedFps,display.samples,display.medianGapMs,display.p95GapMs,display.maxGapMs,(unsigned long long)s.rateSkipped);
+  display.valid,display.fps,display.generatedFps,display.samples,display.medianGapMs,display.p95GapMs,display.maxGapMs,(unsigned long long)s.rateSkipped,
+  s.inputGpuTotal/std::max(1u,s.inputGpuSamples),s.outputGpuTotal/std::max(1u,s.outputGpuSamples),s.inputGpuSamples,s.outputGpuSamples,
+  s.qualityWaitTotal/std::max(1u,s.costFrames),s.previousWaitTotal/std::max(1u,s.costFrames),s.presentTotal/std::max(1u,s.costFrames),s.callTotal/std::max(1u,s.costFrames),s.costFrames);
  s.metricsAt=now;s.metricsSources=s.sources;s.metricsGenerated=s.generated;
+ s.costFrames=s.inputGpuSamples=s.outputGpuSamples=0;
+ s.inputGpuTotal=s.outputGpuTotal=s.qualityWaitTotal=s.previousWaitTotal=s.presentTotal=s.callTotal=0;
 }
 EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(VkInstance,const char*);
 EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetDeviceProcAddr(VkDevice,const char*);
@@ -100,11 +111,12 @@ static VKAPI_ATTR VkResult VKAPI_CALL createDevice(VkPhysicalDevice physical,con
  auto d=std::make_shared<Device>();d->handle=*out;d->physical=physical;d->instance=inst;d->gdpa=get;d->setLoaderData=callback;d->a.load(*out,get);
  if(timing){d->pastTiming=(PFN_vkGetPastPresentationTimingGOOGLE)get(*out,"vkGetPastPresentationTimingGOOGLE");d->refreshTiming=(PFN_vkGetRefreshCycleDurationGOOGLE)get(*out,"vkGetRefreshCycleDurationGOOGLE");}
  auto mem=(PFN_vkGetPhysicalDeviceMemoryProperties)inst->gipa(inst->handle,"vkGetPhysicalDeviceMemoryProperties");mem(physical,&d->memory);
+ auto propertiesFn=(PFN_vkGetPhysicalDeviceProperties)inst->gipa(inst->handle,"vkGetPhysicalDeviceProperties");VkPhysicalDeviceProperties properties{};propertiesFn(physical,&properties);d->timestampPeriod=properties.limits.timestampPeriod;
  auto fam=(PFN_vkGetPhysicalDeviceQueueFamilyProperties)inst->gipa(inst->handle,"vkGetPhysicalDeviceQueueFamilyProperties");uint32_t n=0;fam(physical,&n,nullptr);d->families.resize(n);fam(physical,&n,d->families.data());
  {std::lock_guard<std::mutex> l(globalMutex);devices[key(*out)]=d;}
  LOG("DEVICE registered display_timing=%d",d->pastTiming!=nullptr);return r;
 }
-static void releaseSwap(Device& d,Swap& s){auto& a=d.a;a.DeviceWaitIdle(d.handle);s.engine.reset();for(auto sem:s.ready)if(sem)a.DestroySemaphore(d.handle,sem,nullptr);if(s.acquired)a.DestroyFence(d.handle,s.acquired,nullptr);if(s.pool)a.DestroyCommandPool(d.handle,s.pool,nullptr);s.pool={};s.acquired={};s.ready.clear();}
+static void releaseSwap(Device& d,Swap& s){auto& a=d.a;a.DeviceWaitIdle(d.handle);s.workPending=false;s.engine.reset();for(auto sem:s.ready)if(sem)a.DestroySemaphore(d.handle,sem,nullptr);if(s.acquired)a.DestroyFence(d.handle,s.acquired,nullptr);if(s.workDone)a.DestroyFence(d.handle,s.workDone,nullptr);if(s.queries)a.DestroyQueryPool(d.handle,s.queries,nullptr);if(s.pool)a.DestroyCommandPool(d.handle,s.pool,nullptr);s.pool={};s.acquired={};s.workDone={};s.queries={};s.ready.clear();}
 static VKAPI_ATTR void VKAPI_CALL destroyDevice(VkDevice device,const VkAllocationCallbacks* alloc){auto d=deviceFor(device);if(!d)return;{std::lock_guard<std::mutex> l(d->mutex);d->a.DeviceWaitIdle(device);d->appCommands.clear();d->appPools.clear();for(auto& entry:d->swaps)releaseSwap(*d,*entry.second);d->swaps.clear();}{std::lock_guard<std::mutex> l(globalMutex);for(auto i=queues.begin();i!=queues.end();)if(i->second.device==d)i=queues.erase(i);else ++i;devices.erase(key(device));}d->a.DestroyDevice(device,alloc);}
 static void trackQueue(std::shared_ptr<Device> d,VkQueue queue,uint32_t family){if(!queue)return;std::lock_guard<std::mutex> l(globalMutex);queues[queue]={d,family};}
 static VKAPI_ATTR void VKAPI_CALL getQueue(VkDevice device,uint32_t family,uint32_t index,VkQueue* out){auto d=deviceFor(device);if(!d)return;d->a.GetDeviceQueue(device,family,index,out);trackQueue(d,*out,family);}
@@ -141,15 +153,42 @@ static bool prepare(Device& d,Swap& s,uint32_t family){
   VkCommandBufferAllocateInfo ca{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};ca.commandPool=s.pool;ca.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;ca.commandBufferCount=1;requireVk(a.AllocateCommandBuffers(d.handle,&ca,&s.cmd),"AllocateLayerCommand");
   if(d.setLoaderData)requireVk(d.setLoaderData(d.handle,s.cmd),"SetLoaderData");
   VkFenceCreateInfo fi{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};requireVk(a.CreateFence(d.handle,&fi,nullptr,&s.acquired),"CreateAcquireFence");
+  requireVk(a.CreateFence(d.handle,&fi,nullptr,&s.workDone),"CreateWorkFence");
+  s.timestampBits=d.families[family].timestampValidBits;
+  if(s.timestampBits&&d.timestampPeriod>0){VkQueryPoolCreateInfo qi{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};qi.queryType=VK_QUERY_TYPE_TIMESTAMP;qi.queryCount=4;auto qr=a.CreateQueryPool(d.handle,&qi,nullptr,&s.queries);if(qr!=VK_SUCCESS){s.queries={};LOG("GPU_TIMING unavailable result=%d",qr);}}
   VkSemaphoreCreateInfo si{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};s.ready.resize(s.images.size());for(auto& sem:s.ready)requireVk(a.CreateSemaphore(d.handle,&si,nullptr,&sem),"CreatePresentSemaphore");
-  s.engine=std::make_unique<Engine>();s.engine->init(a,d.memory,s.extent,s.extent);LOG("PIPELINE ready FG_input=%ux%u output=%ux%u; real frame preserved, spatial SR reported separately",s.extent.width,s.extent.height,s.extent.width,s.extent.height);return true;
+  s.engine=std::make_unique<Engine>();s.engine->init(a,d.memory,s.extent,s.extent);LOG("PIPELINE ready FG_input=%ux%u output=%ux%u presenter=fence gpu_timing=%d; real frame preserved, spatial SR reported separately",s.extent.width,s.extent.height,s.extent.width,s.extent.height,s.queries!=VK_NULL_HANDLE);return true;
  }catch(const std::exception& e){LOG("DISABLED %s",e.what());s.disabled=true;releaseSwap(d,s);return false;}
+}
+static void collectGpuTime(Device& d,Swap& s,uint32_t first,bool output){
+ if(!s.queries)return;
+ // Called only after this submission's fence has signaled. Timestamp queries
+ // are optional instrumentation, never a reason to block the whole queue.
+ uint64_t ticks[2]{};auto result=d.a.GetQueryPoolResults(d.handle,s.queries,first,2,sizeof(ticks),ticks,sizeof(uint64_t),VK_QUERY_RESULT_64_BIT);
+ if(result!=VK_SUCCESS)return;
+ uint64_t mask=s.timestampBits>=64?UINT64_MAX:((uint64_t(1)<<s.timestampBits)-1);
+ double ms=double((ticks[1]-ticks[0])&mask)*d.timestampPeriod/1e6;
+ if(output){s.outputGpuTotal+=ms;++s.outputGpuSamples;}else{s.inputGpuTotal+=ms;++s.inputGpuSamples;}
+}
+static VkResult waitLayerWork(Device& d,Swap& s){
+ if(!s.workPending)return VK_SUCCESS;
+ auto result=d.a.WaitForFences(d.handle,1,&s.workDone,VK_TRUE,UINT64_MAX);
+ if(result==VK_SUCCESS){s.workPending=false;if(s.outputTimed)collectGpuTime(d,s,2,true);s.outputTimed=false;}
+ return result;
 }
 static VKAPI_ATTR VkResult VKAPI_CALL present(VkQueue queue,const VkPresentInfoKHR* info){
  Queue q{};{std::lock_guard<std::mutex> l(globalMutex);auto it=queues.find(queue);if(it==queues.end())return VK_ERROR_INITIALIZATION_FAILED;q=it->second;}
  auto d=q.device;auto& a=d->a;std::lock_guard<std::mutex> lock(d->mutex);
- if(info->swapchainCount!=1||!enabled())return a.QueuePresentKHR(queue,info);
- auto found=d->swaps.find(info->pSwapchains[0]);if(found==d->swaps.end())return a.QueuePresentKHR(queue,info);auto& s=*found->second;++s.sources;
+ if(info->swapchainCount!=1)return a.QueuePresentKHR(queue,info);
+ auto found=d->swaps.find(info->pSwapchains[0]);if(found==d->swaps.end())return a.QueuePresentKHR(queue,info);auto& s=*found->second;
+ if(!enabled()){
+  // Hot disable must not leave an old scene/cadence eligible for interpolation
+  // when the user enables the automatic mode again in the same process.
+  if(s.engine)s.engine->hasHistory=false;s.cadence={};s.lastRealDesired=0;s.spatialActive=false;
+  if(info->pImageIndices[0]<s.spatialFrames.size())s.spatialFrames[info->pImageIndices[0]].pending=false;
+  return a.QueuePresentKHR(queue,info);
+ }
+ ++s.sources;
  s.spatialActive=false;uint32_t presented=info->pImageIndices[0];
  if(presented<s.spatialFrames.size()&&s.spatialFrames[presented].pending){s.spatialActive=true;s.spatialInput=s.spatialFrames[presented].input;s.spatialFrames[presented].pending=false;++s.spatialPresents;}
  pollPresentation(*d,s);
@@ -165,17 +204,26 @@ static VKAPI_ATTR VkResult VKAPI_CALL present(VkQueue queue,const VkPresentInfoK
  if(!s.supported||s.disabled||!prepare(*d,s,q.family)){auto result=a.QueuePresentKHR(queue,info);reportMetrics(s,0,0);return result;}
  uint32_t original=info->pImageIndices[0],extra=~0u;if(original>=s.images.size())return a.QueuePresentKHR(queue,info);
  auto start=std::chrono::steady_clock::now();
- // Deliberately conservative synchronization for this experimental implementation.
- // This stalls the caller and is not a low-latency async proxy swapchain.
- auto idle=a.QueueWaitIdle(queue);if(idle!=VK_SUCCESS)return idle;
- a.ResetCommandPool(d->handle,s.pool,0);VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};bi.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+ // Only the layer's previous output must finish before reusing its command
+ // pool/history. The game's render-complete semaphores order the new input.
+ // CPU quality readback still waits for the input fence; this is not yet an
+ // asynchronous proxy swapchain. Presentation semaphores remain per WSI image
+ // and are reused only after that image has been acquired again.
+ auto waited=waitLayerWork(*d,s);if(waited!=VK_SUCCESS)return waited;
+ double previousWaitMs=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count(),qualityWaitMs=0,presentMs=0;
+ auto reset=a.ResetCommandPool(d->handle,s.pool,0);if(reset!=VK_SUCCESS)return reset;
+ VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};bi.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
  auto br=a.BeginCommandBuffer(s.cmd,&bi);if(br!=VK_SUCCESS)return br;
+ if(s.queries){a.CmdResetQueryPool(s.cmd,s.queries,0,4);a.CmdWriteTimestamp(s.cmd,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,s.queries,0);}
  s.engine->record(s.cmd,s.images[original],VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,false);
+ if(s.queries)a.CmdWriteTimestamp(s.cmd,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,s.queries,1);
  auto er=a.EndCommandBuffer(s.cmd);if(er!=VK_SUCCESS)return er;
  std::vector<VkPipelineStageFlags> stages(info->waitSemaphoreCount,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
  VkSubmitInfo input{VK_STRUCTURE_TYPE_SUBMIT_INFO};input.waitSemaphoreCount=info->waitSemaphoreCount;input.pWaitSemaphores=info->pWaitSemaphores;input.pWaitDstStageMask=stages.data();input.commandBufferCount=1;input.pCommandBuffers=&s.cmd;
- auto sr=a.QueueSubmit(queue,1,&input,VK_NULL_HANDLE);if(sr!=VK_SUCCESS)return sr;
- idle=a.QueueWaitIdle(queue);if(idle!=VK_SUCCESS)return idle;
+ reset=a.ResetFences(d->handle,1,&s.workDone);if(reset!=VK_SUCCESS)return reset;
+ auto sr=a.QueueSubmit(queue,1,&input,s.workDone);if(sr!=VK_SUCCESS)return sr;s.workPending=true;
+ auto waitStart=std::chrono::steady_clock::now();waited=waitLayerWork(*d,s);if(waited!=VK_SUCCESS)return waited;
+ qualityWaitMs=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-waitStart).count();collectGpuTime(*d,s,0,false);
  const auto quality=s.engine->readQuality();bool pair=quality.allow!=0;
  if(quality.reasons&QUALITY_CUT)++s.cutSkipped;
  if(quality.reasons&QUALITY_HOLDOFF)++s.holdSkipped;
@@ -188,15 +236,18 @@ static VKAPI_ATTR VkResult VKAPI_CALL present(VkQueue queue,const VkPresentInfoK
   if(ar!=VK_SUCCESS&&ar!=VK_SUBOPTIMAL_KHR){++s.skipped;pair=false;}
   else {auto wr=a.WaitForFences(d->handle,1,&s.acquired,VK_TRUE,UINT64_MAX);if(wr!=VK_SUCCESS)return wr;}
  }
- auto counters=[&](){double ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();reportMetrics(s,quality.reasons,ms);if(s.sources%60==0){LOG("COUNTERS sources=%llu generated_present_requests=%llu spare_skips=%llu cut_skips=%llu hold_skips=%llu flow_skips=%llu last_quality_flags=%u last_blocking_ms=%.3f (NOT displayed FPS)",(unsigned long long)s.sources,(unsigned long long)s.generated,(unsigned long long)s.skipped,(unsigned long long)s.cutSkipped,(unsigned long long)s.holdSkipped,(unsigned long long)s.flowSkipped,quality.reasons,ms);}};
- if(!pair){s.lastRealDesired=0;VkPresentInfoKHR real=*info;real.waitSemaphoreCount=0;real.pWaitSemaphores=nullptr;auto result=timedPresent(*d,s,queue,&real,false);counters();return result;}
- a.ResetCommandPool(d->handle,s.pool,0);br=a.BeginCommandBuffer(s.cmd,&bi);if(br!=VK_SUCCESS)return br;
+ auto counters=[&](){double ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();++s.costFrames;s.qualityWaitTotal+=qualityWaitMs;s.previousWaitTotal+=previousWaitMs;s.presentTotal+=presentMs;s.callTotal+=ms;reportMetrics(s,quality.reasons,ms);if(s.sources%60==0){LOG("COUNTERS sources=%llu generated_present_requests=%llu spare_skips=%llu cut_skips=%llu hold_skips=%llu flow_skips=%llu last_quality_flags=%u last_blocking_ms=%.3f (NOT displayed FPS)",(unsigned long long)s.sources,(unsigned long long)s.generated,(unsigned long long)s.skipped,(unsigned long long)s.cutSkipped,(unsigned long long)s.holdSkipped,(unsigned long long)s.flowSkipped,quality.reasons,ms);}};
+ if(!pair){s.lastRealDesired=0;VkPresentInfoKHR real=*info;real.waitSemaphoreCount=0;real.pWaitSemaphores=nullptr;auto presentStart=std::chrono::steady_clock::now();auto result=timedPresent(*d,s,queue,&real,false);presentMs=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-presentStart).count();counters();return result;}
+ reset=a.ResetCommandPool(d->handle,s.pool,0);if(reset!=VK_SUCCESS)return reset;br=a.BeginCommandBuffer(s.cmd,&bi);if(br!=VK_SUCCESS)return br;
+ if(s.queries)a.CmdWriteTimestamp(s.cmd,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,s.queries,2);
  auto output=[&](VkImage from,uint32_t index,VkImageLayout oldLayout){s.engine->barrier(s.cmd,s.images[index],oldLayout,VK_IMAGE_LAYOUT_GENERAL,0,VK_ACCESS_TRANSFER_WRITE_BIT);s.engine->blit(s.cmd,from,s.extent,s.images[index],s.extent);s.engine->barrier(s.cmd,s.images[index],VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,VK_ACCESS_TRANSFER_WRITE_BIT,0);};
  output(s.engine->upCurrent.image,original,VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);if(pair)output(s.engine->upMid.image,extra,VK_IMAGE_LAYOUT_UNDEFINED);
+ if(s.queries)a.CmdWriteTimestamp(s.cmd,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,s.queries,3);
  er=a.EndCommandBuffer(s.cmd);if(er!=VK_SUCCESS)return er;
  VkSemaphore signals[]={s.ready[original],s.ready[extra]};
  VkSubmitInfo sub{VK_STRUCTURE_TYPE_SUBMIT_INFO};sub.commandBufferCount=1;sub.pCommandBuffers=&s.cmd;sub.signalSemaphoreCount=2;sub.pSignalSemaphores=signals;
- sr=a.QueueSubmit(queue,1,&sub,VK_NULL_HANDLE);if(sr!=VK_SUCCESS)return sr;
+ reset=a.ResetFences(d->handle,1,&s.workDone);if(reset!=VK_SUCCESS)return reset;
+ sr=a.QueueSubmit(queue,1,&sub,s.workDone);if(sr!=VK_SUCCESS)return sr;s.workPending=true;s.outputTimed=s.queries!=VK_NULL_HANDLE;
  uint64_t generatedTime=0,realTime=0;char pacing[PROP_VALUE_MAX]{};__system_property_get("debug.thorfg.pacing",pacing);
  if(s.timing&&pacing[0]!='0'){
   uint64_t half=std::max(s.refreshNs,s.cadence.interval()/2),now=monotonicNs();
@@ -205,9 +256,10 @@ static VKAPI_ATTR VkResult VKAPI_CALL present(VkQueue queue,const VkPresentInfoK
   realTime=generatedTime+half;s.lastRealDesired=realTime;
  }
  VkResult generatedResult=VK_SUCCESS;
+ auto presentStart=std::chrono::steady_clock::now();
  if(pair){VkPresentInfoKHR gen{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};gen.waitSemaphoreCount=1;gen.pWaitSemaphores=&s.ready[extra];gen.swapchainCount=1;gen.pSwapchains=&s.handle;gen.pImageIndices=&extra;generatedResult=timedPresent(*d,s,queue,&gen,true,generatedTime);if(generatedResult==VK_SUCCESS||generatedResult==VK_SUBOPTIMAL_KHR)++s.generated;}
  VkPresentInfoKHR real=*info;real.waitSemaphoreCount=1;real.pWaitSemaphores=&s.ready[original];auto r=timedPresent(*d,s,queue,&real,false,realTime);
- idle=a.QueueWaitIdle(queue);if(idle!=VK_SUCCESS)return idle;
+ presentMs=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-presentStart).count();
  counters();
  if(r==VK_SUCCESS&&generatedResult!=VK_SUCCESS&&generatedResult!=VK_SUBOPTIMAL_KHR)return generatedResult;return r;
 }

@@ -1,4 +1,9 @@
-THOR NATIVE FG 0.1 — TRẠNG THÁI CUỐI NGÀY 23/10/2026
+THOR NATIVE FG — NHẬT KÝ KIỂM CHỨNG (CẬP NHẬT0.4)
+
+HIỆN TẠI: APK0.4 và bootstrap0.2 đã cài, reboot thành công, tự động bật cho
+16game/giả lập đã chọn. Các mục0.1/0.2/0.3 phía dưới ghi lại những phiên trước;
+không dùng trạng thái 'tắt' trong các mục lịch sử làm trạng thái máy hiện tại.
+Mục tiêu DLSS-like đầy đủ vẫn chưa đạt. Xem phần cập nhật0.4 ở cuối file.
 
 ĐÃ CÀI TRÊN MÁY
 - APK com.thor.nativefg, nhãn Thor Native FG, ARM64, ký development v3.
@@ -157,3 +162,60 @@ CẬP NHẬT Ô FPS VÀ TIMESTAMP TRÌNH BÀY
 - Đã trả bốn GPU settings và target/enable/SR/validate về trước QA, xóa cờ
   trace/pacing/demo_fps tạm, gỡ validation provider. Global debug.vulkan.layers
   vẫn trống. DroidDeck PID28832 được giữ nguyên, không đóng phiên của người dùng.
+
+CẬP NHẬT0.4 — TỰ ĐỘNG CHO GAME/GIẢ LẬP
+- Người dùng yêu cầu tự nhận diện và cho phép áp dụng. APK0.4 thêm công tắc
+  tự động, danh sách chọn/loại từng app và lưu cấu hình qua reboot/cập nhật.
+ 16app hiện được chọn. Metadata game + package giả lập là tiêu chí; home
+  launcher thường và benchmark không được tự chọn. Có thể thêm app thiếu metadata.
+- Root config ở /data/adb/thor-native-fg/auto.conf, owner0, mode600. Companion
+  đọc file có giới hạn và đối chiếu cả UID/package. Không chọn system/isolated/
+  denylisted processes. Không ghi global debug.vulkan.layers.
+- Bootstrap0.2 dùng JNI GraphicsEnvironment trong đúng tiến trình được chọn,
+  trước khi game tạo Vulkan. Giữ layer chẩn đoán có sẵn, thêm đường provider.
+  Không dùng polling foreground để đua với vkCreateInstance. Foreground monitor
+  chỉ chọn dữ liệu HUD; ô tự ẩn trên app ngoài danh sách.
+- Đã sao lưu bootstrap0.1 tại research/bootstrap-before-auto.tar, cài module0.2
+  bằng Magisk. Người dùng cho phép reboot lần này; boot xong sys.thorfg.bootstrap=2,
+  debug.thorfg.auto=1, auto_sr=1. Global Vulkan forcing vẫn trống.
+- PPSSPP mở bình thường: AUTO_SELECTED + AUTO_LAYER_PATH + INSTANCE/DEVICE và
+  swapchain, dù global gpu_debug_app vẫn là DroidDeck. Menu chạy khoảng119FPS;
+  engine bỏ FG thay vì ép nguồn xuống60. Ô một dòng Gốc119|FG119 đã kiểm bằng
+  ảnh. research/auto-ppsspp-log.txt, work/thor-auto-ppsspp.png.
+- DroidDeck cold launch cũng có AUTO_SELECTED + AUTO_LAYER_PATH. Đây là bằng
+  chứng bootstrap tự chọn DroidDeck, chưa phải benchmark gameplay/container.
+  research/auto-droiddeck-log.txt.
+- APK mẫu release không debuggable được thêm tạm vào allowlist QA: global target
+  vẫn DroidDeck nhưng tự nạp layer, source30FPS, hiển thị khoảng60FPS và SR thật
+ 640x360→1920x851. research/auto-release-30.txt. Không phải game thực.
+- Phiên auto + validation/sync validation: nạp validation2lần,3/3ảnh SGSR khớp
+  tham chiếu,3/3compute state đúng, Home→mở lại tạo2swapchain cùng PID.113,199s
+  telemetry được thu,0lỗiVUID/SYNC/FATAL. Có21cut/42hold trong mốc cuối.
+  research/auto-release-validation.txt và auto-runtime-summary.json.
+- UI OFF/ON đổi đúng file/master property; hot OFF/ON dừng/khôi phục xử lý
+  trong cùng PID. History/cadence bị reset khi tắt, không nối cảnh cũ lúc bật lại.
+-22kiểm tra parser/UID/package/path qua;7kiểm tra IPC với .so thật qua;12kiểm
+  tra quy tắc game qua.27kiểm thử GPU và20kiểm thử telemetry vẫn qua.
+- Đã gỡ releaseprobe và validation provider, bỏ rule QA, khôi phục GPU settings
+  và cờ validate/trace. Chế độ tự động sản phẩm vẫn bật. Không cài file nguồn ZIP
+  đã đánh giá lỗi. Không cần FG từ DroidDeck/LSFG để dùng engine Thor.
+- Checkbox SR trong chế độ tự động cũng cập nhật cờ live; đã kiểm OFF→ON và
+  trả vềON. Cập nhật APK giữ cấu hình và làm mới đường provider; các tiến trình
+  đã mở trong lúc cập nhật cần mở lại để dùng thư viện/đường dẫn mới.
+- APK0.4 hiện tại SHA256:
+ 93D40D223768E9CB057A6185C6BEAA46AD44D9252DA7E96D2A89DC796A2EF3F6
+  Thư viện bootstrap đang hoạt động khớp bản build, SHA256:
+ 62EF422CDB669C76948F87D459FD16ADFBD76B0A2B5203D15C6704F201C38A31
+  IPC của chính thư viện đã cài cũng qua7/7kiểm tra.
+
+CẬP NHẬT PRESENTER VÀ PHÉP ĐO
+- Bỏ ba QueueWaitIdle mỗi cặp: chờ fence riêng khi tái dùng tài nguyên và đọc
+  quality; output trả về khi còn có thể đang chạy GPU, đồng bộ bằng semaphore.
+  Semaphore trình bày vẫn theo từng image/acquire, không tái dùng theo CPU fence.
+- Tách GPU input và output-copy, CPU quality-wait/previous-wait/present/call
+  trong THOR_METRICS. Ví dụ nguồn30, surface1920x851: input khoảng6–7,5ms,
+  output-copy khoảng0,17ms; CPU còn chờ quality khoảng7–8,6ms. Không phải latency.
+  research/fence-summary.json. Chưa có presenter async hay phép đo input-to-photon.
+- Nguồn60 trong phiên fence ngắn đạt trung bình khoảng114FPS hiển thị, có cut/
+  rate skips. Không kết luận tăng FPS hoặc latency tốt hơn bản queue-idle; cần
+  xử lý ngân sách refresh/pacing và đọc quality bất đồng bộ tiếp.

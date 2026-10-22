@@ -28,6 +28,11 @@ Required end state (all remain required until supported by evidence):
 8. Sustained testing on the actual Thor: compare quality, FPS, thermal behavior
    and latency with FG/SR off, SR-only and SR+FG. Mere compilation/validation or
    a higher counter does not prove the user goal complete.
+9. User-requested automatic mode: recognize installed emulator/game candidates,
+   permit explicit package opt-in/out, inject early enough for a normal launcher
+   launch, preserve boot/update configuration and a working off action. Scope
+   injection by UID/package; foreground HUD must remain truthful and disappear
+   on ordinary apps. Do not globally force a Vulkan layer or silently kill games.
 
 NVIDIA's proprietary binary/model is not an implementation option on Adreno.
 The requested equivalent function/quality remains the target; names and claims
@@ -44,12 +49,22 @@ Current verified baseline and gaps:
   External-layer output matched independent SGSR reference pixels in3frames;
   an SR-off negative control differed as expected. In-game low-res SR benefit
   and quality are still unverified, so the game requirement remains outstanding.
-- Queue-idle synchronization and opportunistic extra acquisition can stall the
-  source and add latency. Async scheduling/proxy presentation remains required.
+- Three per-pair queue-idle waits have been replaced with submission fences;
+  GPU timestamps now separate input/quality/interpolation and output-copy cost.
+  CPU quality readback still waits roughly7–8ms in the synthetic display-sized
+  fixture. Opportunistic extra acquisition and synchronous readback remain;
+  async scheduling/proxy presentation and display-budget handling are required.
 - No gameplay quality, end-to-end latency or sustained-benefit proof exists.
 - A movable HUD uses native per-PID/boot-clock telemetry with stale-data expiry.
-  It now shows only source FPS and an explicitly estimated post-FG request rate,
-  per the user's request; detailed SR status remains in the controller app.
+  It shows only source and post-FG FPS. Output uses valid presentation timestamps
+  when available, otherwise an explicitly marked estimate; detailed SR status
+  remains in the controller app.
+- Version0.4 automatic injection was verified after reboot in PPSSPP and at
+  DroidDeck application binding. A non-debuggable sample, with the manual target
+  still pointing at DroidDeck, displayed about60FPS from30FPS and real spatial
+  SR. An automatic+validation session survived Home/recreation, two swapchains
+  and113s of telemetry without captured validation errors. These are not proof
+  of in-game quality/performance or universal emulator compatibility.
 - Thor_DLSS_Source.zip was reviewed separately. Its duplicate-present wrapper
   and disconnected shaders do not supply the missing FG/SR engine. See the
   source review; do not merge that wrapper as a shortcut to product completion.
