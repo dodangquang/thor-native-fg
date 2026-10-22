@@ -14,7 +14,9 @@ final class AutoMode {
     static SharedPreferences preferences(Context context){return context.getSharedPreferences("thor",Context.MODE_PRIVATE);}
     static boolean requested(Context context){return preferences(context).getBoolean("auto_enabled",false);}
     static String foregroundScript(){
-        return "dumpsys activity activities | awk '/topResumedActivity=ActivityRecord/ { for(i=1;i<=NF;i++) if($i ~ /^[A-Za-z0-9_.]+\\//) {split($i,part,\"/\"); print part[1]; exit} }'";
+        // Consume the whole dump: an early pipe close can make dumpsys emit a
+        // Binder 'Broken pipe' error into the controller's merged root output.
+        return "dumpsys activity activities | awk '/topResumedActivity=ActivityRecord/ && !found { for(i=1;i<=NF;i++) if($i ~ /^[A-Za-z0-9_.]+\\//) {split($i,part,\"/\"); foreground=part[1]; found=1; break} } END {if(found) print foreground}'";
     }
     static String allowedScript(){return "awk -F: -v package_name=\"$game_target\" '$1 ~ /^app=[0-9]+$/ && $2==package_name {matched=1} END {exit !matched}' "+FILE;}
     static List<Entry> applications(Context context){

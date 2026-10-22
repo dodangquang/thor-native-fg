@@ -75,3 +75,6 @@ A. Extend the passing cut/fast-motion fixtures to real gameplay, HUD/occlusion,
 B. Evaluate a mobile neural SR model/runtime and an actual low-resolution source
    path; retain full scope rather than calling a spatial filter the end product.
 C. Replace the blocking presenter and coarse flow as measurements require.
+D. Harden provider removal/update handling; injection namespaces are established
+   at process binding, so existing targets currently need a restart after an
+   APK provider update. Preserve the user's running game during updates.

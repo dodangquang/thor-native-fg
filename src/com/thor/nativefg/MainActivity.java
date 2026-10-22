@@ -125,11 +125,15 @@ public class MainActivity extends Activity {
     private String readStatus()throws Exception{
         boolean auto=AutoMode.requested(this);String autoStatus=auto?"Tự động: đã yêu cầu; bootstrap đang chạy="+root("getprop sys.thorfg.bootstrap")+" (cần 2).\n":"";
         String target=auto?root("game_target=$("+AutoMode.foregroundScript()+"); if "+AutoMode.allowedScript()+"; then printf %s \"$game_target\"; fi"):root("settings get global gpu_debug_app");
+        if(auto&&target.isEmpty()){
+            String last=AutoMode.preferences(this).getString("auto_last_package","");
+            if(GameRules.validPackage(last)){target=root("game_target="+RootShell.quote(last)+"; if "+AutoMode.allowedScript()+"; then printf %s \"$game_target\"; fi");if(!target.isEmpty())autoStatus+="Ứng dụng gần nhất (có thể đang ở nền): "+target+"\n";}
+        }
         String config=autoStatus+target+"\n"+root("getprop "+(auto?"debug.thorfg.auto":"debug.thorfg.enabled"));
         if(!target.matches("[A-Za-z0-9_.]+")||target.equals("null"))return autoStatus+(auto?"Đang chờ game/giả lập trong danh sách ở trước.":"Chưa chọn ứng dụng cho layer.");
         String pid=root("pidof -s "+target+" || true");
         if(!pid.matches("[0-9]+"))return "Target: "+target+"\nChưa có tiến trình đang chạy. Mở lại giả lập rồi kiểm tra.";
-        String logs=root("logcat -d --pid="+pid+" -t 3000 -s ThorNativeBootstrap:I ThorNativeLayer:I ThorNativeDemo:I '*:S'");
+        String logs=root("logcat -d --pid="+pid+" -t 3000 -s ThorNativeBootstrap:I ThorNativeLayer:I ThorNativeDemo:I '*:S' | tail -c 18000");
         if(logs.length()>18000)logs=logs.substring(logs.length()-18000);
         RuntimeMetrics latest=null;for(String line:logs.split("\\r?\\n")){RuntimeMetrics value=RuntimeMetrics.parse(line,SystemClock.elapsedRealtime());if(value!=null&&value.pid==Integer.parseInt(pid))latest=value;}
         String summary=latest!=null&&latest.fresh(SystemClock.elapsedRealtime())?latest.hud()+"\n"+latest.detail():"Chờ dữ liệu FG/SR mới của tiến trình này.";

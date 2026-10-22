@@ -203,10 +203,16 @@ CẬP NHẬT0.4 — TỰ ĐỘNG CHO GAME/GIẢ LẬP
   trả vềON. Cập nhật APK giữ cấu hình và làm mới đường provider; các tiến trình
   đã mở trong lúc cập nhật cần mở lại để dùng thư viện/đường dẫn mới.
 - APK0.4 hiện tại SHA256:
- 93D40D223768E9CB057A6185C6BEAA46AD44D9252DA7E96D2A89DC796A2EF3F6
+ 5705BA7C401497B6070F07C0C61EF528BF773251AE575B8966279C212A15B034
   Thư viện bootstrap đang hoạt động khớp bản build, SHA256:
  62EF422CDB669C76948F87D459FD16ADFBD76B0A2B5203D15C6704F201C38A31
   IPC của chính thư viện đã cài cũng qua7/7kiểm tra.
+- Nút đọc trạng thái tự tìm game gần nhất khi controller đang che game, vẫn
+  kiểm tra PID và hạn dữ liệu. Khi PPSSPP ở nền, UI chỉ báo chờ dữ liệu mới.
+  Đã kiểm bằng UI với log107115byte, giới hạn trước khi đọc root còn18000byte;
+  không vượt giới hạn output. research/auto-status-long-log.txt.
+- Foreground parser đọc hết output dumpsys để không tạo Binder Broken pipe;
+  script lấy từ chính class đã biên dịch trả đúng một package trên Thor.
 
 CẬP NHẬT PRESENTER VÀ PHÉP ĐO
 - Bỏ ba QueueWaitIdle mỗi cặp: chờ fence riêng khi tái dùng tài nguyên và đọc

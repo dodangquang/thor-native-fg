@@ -64,6 +64,7 @@ public class FpsOverlayService extends Service {
             }
             if(!selected.isEmpty()&&!selected.matches("[A-Za-z0-9_.]+"))return;
             int pid=pidText.matches("[0-9]+")?Integer.parseInt(pidText):0;
+            if("1".equals(auto)&&pid>0&&!selected.isEmpty()&&!selected.equals(getPreferences().getString("auto_last_package","")))getPreferences().edit().putString("auto_last_package",selected).apply();
             if(!selected.equals(target)||pid!=targetPid)metrics=null;
             target=selected;targetPid=pid;active="1".equals(on);automatic="1".equals(auto);error="";
         }catch(RuntimeException invalid){/* Ignore incomplete monitor output. */}

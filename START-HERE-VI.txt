@@ -12,6 +12,8 @@ CHẾ ĐỘ TỰ ĐỘNG (ĐÃ BẬT TRÊN THOR)
    FG là tổng FPS sau xử lý. Nguồn đã gần119FPS thì bỏ nội suy để giữ tốc độ.
 5. Tắt công tắc để ngừng tự động; lựa chọn được giữ qua reboot. 'Tắt layer'
    cũng tắt tự động. Nút bật thủ công chuyển sang chế độ chọn một ứng dụng.
+   Nút đọc trạng thái dùng game gần nhất khi bạn mở controller lên che game;
+   dữ liệu cũ khi game ở nền không được báo là FPS đang chạy.
 
 Nhận diện dựa trên package giả lập và metadata game, không đoán từ tải CPU.
 Game thiếu metadata có thể thêm tay; launcher thường/benchmark không được
