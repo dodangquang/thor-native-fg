@@ -1,0 +1,32 @@
+#version 450
+layout(local_size_x=8,local_size_y=8) in;
+layout(binding=0) uniform sampler2D prevFrame;
+layout(binding=1) uniform sampler2D currFrame;
+layout(binding=2,rgba32f) uniform writeonly image2D flowImage;
+layout(std430,binding=3) buffer Stats { uint difference; uint valid; uint count; uint reserved; } stats;
+layout(push_constant) uniform Params { ivec2 inputSize; ivec2 gridSize; float phase; int history; } p;
+float delta(vec3 a, vec3 b) { return dot(abs(a-b),vec3(0.299,0.587,0.114)); }
+vec3 readFrame(bool reverse, vec2 uv) { return reverse ? textureLod(currFrame,uv,0).rgb : textureLod(prevFrame,uv,0).rgb; }
+vec3 target(bool reverse, vec2 uv) { return reverse ? textureLod(prevFrame,uv,0).rgb : textureLod(currFrame,uv,0).rgb; }
+vec3 search(bool reverse,ivec2 block) {
+  vec2 fullGrid=vec2(p.gridSize*8); vec2 center=(vec2(block*8)+4.0)/fullGrid;
+  float best=100.0; vec2 chosen=vec2(0);
+  for(int y=-4;y<=4;y++) for(int x=-4;x<=4;x++) {
+    vec2 offset=vec2(x,y)/fullGrid; float cost=0;
+    for(int j=-3;j<=3;j+=2) for(int i=-3;i<=3;i+=2) {
+      vec2 uv=center+vec2(i,j)/fullGrid;
+      cost+=delta(readFrame(reverse,uv),target(reverse,uv+offset));
+    }
+    cost=cost/16.0 + 0.00003*float(x*x+y*y);
+    if(cost<best) { best=cost;chosen=vec2(x,y); }
+  }
+  return vec3(chosen/fullGrid,best);
+}
+void main(){
+  ivec2 at=ivec2(gl_GlobalInvocationID.xy); if(any(greaterThanEqual(at,p.gridSize)))return;
+  vec3 f=search(false,at),b=search(true,at);
+  imageStore(flowImage,at,vec4(f.xy,b.xy));
+  vec2 uv=(vec2(at)+0.5)/vec2(p.gridSize);
+  atomicAdd(stats.difference,uint(delta(textureLod(prevFrame,uv,0).rgb,textureLod(currFrame,uv,0).rgb)*65535.0));
+  atomicAdd(stats.valid,(f.z<0.10 && b.z<0.10)?1u:0u); atomicAdd(stats.count,1);
+}

@@ -1,0 +1,43 @@
+THOR NATIVE FG 0.1 — BẢN THỬ NGHIỆM
+
+Mở ứng dụng Thor Native FG trên Thor.
+1. Chạy cảnh mẫu để so sánh Bilinear, GSR1 và GSR1+FG.
+2. Đối với Eden/Winlator có FG sẵn, ưu tiên FG bên trong giả lập.
+3. Muốn thử layer: chọn giả lập, bấm Bật layer, cấp root khi Magisk hỏi.
+4. Lưu game và thoát hẳn giả lập đang chạy rồi mở lại. Chọn renderer Vulkan.
+5. Đọc trạng thái. Cần có log INSTANCE/DEVICE/SWAPCHAIN/PIPELINE/COUNTERS của
+   đúng PID mục tiêu; setting bật thành công không chứng minh FG hoạt động.
+6. Bấm Tắt layer để khôi phục setting. Khởi động lại giả lập để bỏ layer khỏi
+   tiến trình đã nạp. Không dùng song song với FG khác.
+
+Sau reboot, target và cờ active tự xóa. Chọn lại giả lập để bật thử nghiệm.
+
+GIỚI HẠN
+Không phải DLSS, không cam kết120FPS/không bóng ma/độ trễ1–3ms. Chưa hỗ trợ
+mọi giả lập. Layer hiện chỉ lọc GSR1 cùng kích thước ảnh game, chưa tự hạ độ
+phân giải render. Cảnh mẫu có upscale thực640x360 lên kích thước Surface.
+Frame gen dùng RGB block motion trên GPU, không có depth/motion của engine.
+Đồng bộ bảo thủ có thể làm chậm game. Chưa có NPU/FSR3/GSR2/3x.
+
+FILE
+ThorNativeFG-debug.apk                 APK ARM64 đã ký thử nghiệm
+ThorNativeFG-Zygisk-experimental.zip   Module bootstrap Magisk/Zygisk
+REPORT-VI.txt                         Kiểm định đề xuất và báo cáo Gemini
+STATUS-VI.txt                         Trạng thái kiểm chứng cuối
+native/, shaders/, src/, build.ps1     Mã nguồn và build lặp lại
+third_party/                          GSR1, Zygisk API và attribution/license
+research/                             Log, ảnh, GPU tests, settings trước test
+
+Build trên Windows:
+powershell -NoProfile -ExecutionPolicy Bypass -File E:\ThorNative\build.ps1
+ADB install provider (cần package visibility cho các app mục tiêu):
+adb install -r --force-queryable E:\ThorNative\ThorNativeFG-debug.apk
+
+Điều khiển qua ADB khi vẫn nối USB (khỏi cần cấp su cho APK):
+powershell -NoProfile -ExecutionPolicy Bypass -File E:\ThorNative\scripts\control.ps1 -Action Enable -Package org.ppsspp.ppsspp
+powershell -NoProfile -ExecutionPolicy Bypass -File E:\ThorNative\scripts\control.ps1 -Action Status
+powershell -NoProfile -ExecutionPolicy Bypass -File E:\ThorNative\scripts\control.ps1 -Action Disable
+
+Module phải được bật trong Magisk, Zygisk bật và reboot sau khi cài/cập nhật.
+Không cần thay driver, hạ điện áp, ép xung hay sửa boot cho bản mẫu này.
+Gỡ module qua Magisk nếu không sử dụng. Không gỡ Magisk/root chỉ để tắt FG.

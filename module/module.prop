@@ -1,0 +1,6 @@
+id=thor_native_fg_bootstrap
+name=Thor Native FG - Scoped Vulkan Layer Bootstrap
+version=0.1-experimental
+versionCode=1
+author=Local Thor Native FG project
+description=Experimental per-package Vulkan debug-layer eligibility. No driver replacement. Requires Zygisk and reboot. Only debug.thorfg.target is eligible while enabled; target clears on reboot.

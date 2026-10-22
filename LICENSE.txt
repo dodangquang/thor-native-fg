@@ -1,0 +1,30 @@
+The original Thor Native FG application, layer, block-motion shaders, tests and
+scripts in this directory are released under the MIT License.
+
+Copyright (c) 2026 Thor Native FG contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Third-party exceptions:
+- SGSR1 filter: Qualcomm Innovation Center, Inc., BSD-3-Clause.
+  See third_party/Snapdragon-GSR-LICENSE.txt and the original shader header.
+- Zygisk API: John "topjohnwu" Wu, permissive ISC-style license in zygisk.hpp.
+- The Vulkan validation binaries in research/ are external QA tools from the
+  Khronos Vulkan-ValidationLayers release and keep their upstream licenses.
+  They are not bundled into the user APK or Magisk module.

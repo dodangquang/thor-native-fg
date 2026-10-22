@@ -1,0 +1,17 @@
+#version 450
+layout(local_size_x=8,local_size_y=8) in;
+layout(binding=0,rgba8) uniform writeonly image2D result;
+layout(push_constant) uniform Scene { ivec2 size; float time; int cut; } p;
+void main(){
+ ivec2 at=ivec2(gl_GlobalInvocationID.xy);if(any(greaterThanEqual(at,p.size)))return;
+ vec2 uv=(vec2(at)+0.5)/vec2(p.size);
+ vec3 color=mix(vec3(0.015,0.03,0.09),vec3(0.04,0.15,0.19),uv.y);
+ float grid=step(0.94,fract(uv.x*24))+step(0.94,fract(uv.y*14));color+=grid*0.04;
+ for(int i=0;i<5;i++){
+   vec2 center=vec2(fract(p.time*0.11+float(i)*0.21),0.25+float(i%3)*0.24);
+   vec2 d=abs(uv-center);if(max(d.x,d.y)<0.045){color=vec3(0.2+float(i)*0.14,0.8-float(i)*0.12,0.55);if(max(d.x,d.y)>0.038)color=vec3(1);}
+ }
+ if(uv.y<0.09 && uv.x<0.3)color=mix(vec3(0.04,0.6,0.9),vec3(1),step(0.85,fract(uv.x*80)));
+ if(p.cut!=0)color=vec3(0.95,0.1,0.03)-color*0.3;
+ imageStore(result,at,vec4(color,1));
+}

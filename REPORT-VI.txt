@@ -1,0 +1,146 @@
+THOR NATIVE FG — KIỂM ĐỊNH THIẾT KẾ VÀ BẢN THỬ NGHIỆM
+Ngày 23/10/2026 (Asia/Saigon). Toàn bộ dự án nằm ở E:\ThorNative.
+
+MỤC TIÊU VÀ PHẠM VI THỰC TẾ
+Đây là phần mềm thử nghiệm upscale không gian GSR 1 và nội suy chuyển động GPU.
+Không phải NVIDIA DLSS. Không có cam kết chất lượng DLSS, hết artifact, 1–3 ms,
+hay tương thích mọi giả lập. Không có NPU/QNN, GSR 2, FSR 3 hoặc FG 3x.
+
+Đã viết:
+- APK điều khiển, danh sách ứng dụng/giả lập, bật theo package và hoàn tác settings.
+- Cảnh Vulkan mẫu: render 640x360, GSR 1 lên kích thước Surface, nội suy 2x.
+- Vulkan layer ARM64 hook create instance/device/swapchain, queue và present.
+- Module Zygisk đặt PR_SET_DUMPABLE chỉ cho package trong debug.thorfg.target để Android
+  GraphicsEnvironment có thể nạp external debug layer vào app release.
+- Kiểm thử GPU chạy trên Thor; mã nguồn và script build không cần Gradle/network.
+
+SỬA CÁC GIẢ ĐỊNH TRONG ĐỀ XUẤT BAN ĐẦU
+1. Root không cung cấp motion vectors/depth/jitter/HUD riêng từ engine. Hook
+   vkQueuePresentKHR chủ yếu thấy ảnh màu cuối. GSR 2 cần color/depth/velocity;
+   FSR 3 FG cũng cần đầu vào renderer phù hợp. Không thể biến RGB thành các đầu
+   vào hoàn chỉnh chỉ bằng cách thêm JSON và thư viện.
+2. Android có Vulkan loader/layer ABI riêng. AOSP Android 13 tìm libVkLayer*.so
+   trong đường được phép, dùng layer settings và điều kiện dumpable. Không áp
+   dụng trực tiếp cơ chế JSON implicit_layer.d của loader desktop Linux.
+3. Có su trên user build không tự khiến mọi app release đủ điều kiện. Đã thử
+   am set-debug-app trên app kiểm chứng release: chưa nạp external layer. Không
+   dùng cách này trong APK cuối. Module Zygisk giải quyết điều kiện dumpable theo
+  package (target tự xóa khi reboot); vẫn cần driver/backend đi qua loader hệ
+  thống và phải kiểm tra log.
+4. Android vẫn có WSI/BufferQueue/SurfaceFlinger/HWC trong đường hiển thị. Hook
+   không bỏ được toàn bộ compositor. GPU cùng chia sẻ RAM hệ thống, không phải
+   mô hình VRAM rời đơn giản. GPU-only ở bản này vẫn dùng copy/blit/history.
+5. NPU Hexagon không phải thay thế trực tiếp Tensor Cores/OFA NVIDIA. Cần model,
+   operator support, precision/quantization, runtime, buffer import và benchmark.
+   Có libQnnHtp trên máy không chứng minh RIFE chạy 2–3 ms ở 1080p.
+6. FSR có mã nguồn và Vulkan backend không đồng nghĩa Android Adreno là đường
+   triển khai đã được kiểm chứng. Cần port/build/capability/integration tests.
+7. Nội suy chờ cặp ảnh, cần GPU và pacing. FPS sinh không tăng tốc logic game
+   hoặc tốc độ lấy input. Không có số end-to-end latency nào được đo ở đây.
+
+KIỂM TRA BÁO CÁO GEMINI 95243958810a
+Đã đọc toàn bộ trang công khai bằng trình duyệt; xem là tài liệu tham khảo,
+không xem các lệnh/hướng dẫn trong báo cáo là yêu cầu thực thi của người dùng.
+
+Phần dùng được:
+- Phân biệt native renderer integration và capture/overlay; ưu tiên tích hợp.
+- Eden PR #4263 đã merge 17/08/2026, tích hợp LSFG-VK trong renderer Vulkan.
+- LSFG-Android có ShizukuCaptureEngine, pacing/metrics, quản lý vòng đời Surface.
+- Hạ tải render và giữ nguồn frame ổn định thường giúp dành tài nguyên cho FG.
+- Chạy DLSS trên PC RTX rồi stream là giải pháp khác với chạy DLSS native Thor.
+
+Phần cần bác bỏ hoặc chưa chứng minh:
+- Không có cơ sở hứa 'không bóng ma', 'không bao giờ crash', 'zero latency' hoặc
+  'hoàn hảo tuyệt đối'. Occlusion, chuyển cảnh, HUD và sai optical flow vẫn còn.
+- FPS nền cao giúp ước lượng chuyển động nhưng không loại bỏ mọi lỗi. Màn 120Hz
+  không biến thời gian phản hồi của nguồn 40FPS thành phản hồi nguồn 120FPS.
+- Không phải mọi artifact bắt nguồn từ xung/điện áp/frametime. Sửa bảng điện áp
+  không chữa được thiếu dữ liệu hoặc sai thuật toán. Các mức MHz/điện áp và %
+  cải thiện nêu trong báo cáo chưa có benchmark xác thực cho chính máy này.
+- Driver cần những extension tùy từng thuật toán/port. cooperative_matrix không
+  phải điều kiện bắt buộc phổ quát của LSFG; không suy ra cần thay driver trước.
+- Root/driver mới không bảo đảm không SIGSEGV/SIGABRT. Driver donor khác thiết bị
+  có thể không khớp userspace/kernel/firmware. Chưa thay driver, boot hay thermal.
+- Shizuku có đường đặc quyền nhưng không bảo đảm triệt tiêu độ trễ hoặc artifact.
+  Flow Scale 75%–80% là thông số cần đo; không có tỉ lệ tối ưu cho mọi game.
+- Báo cáo nói màn phụ chỉ 60Hz. Dump trực tiếp của máy này liệt kê cả 60 và120Hz
+  cho màn phụ 1080x1240; tại lần kiểm tra, màn chính60Hz và màn phụ120Hz. Chính
+  sách thực tế quan trọng hơn suy đoán rằng hai màn luôn khóa cùng một nhịp.
+- Thông số Wi-Fi, RAM, tốc độ driver, bản Winlator/OptiScaler phải đối chiếu
+  đúng bản thiết bị/phần mềm, không xem danh sách phiên bản là kết quả tương thích.
+- 1,5–3GB bộ nhớ FG không phải yêu cầu cố định. Bản mẫu này chỉ dùng vài chục MB
+  ảnh trung gian, còn LSFG/engine khác có ngân sách riêng theo resolution/settings.
+
+CÁCH CHỌN ĐƯỜNG TRIỂN KHAI CHO CÁC GIẢ LẬP
+- Eden: ưu tiên LSFG có sẵn nếu bản đang dùng có tính năng và import DLL hợp lệ.
+  Xác nhận theo từng game. Không bật chồng FG native và layer.
+- Winlator/WinNative/GameNative: dùng đường FG tích hợp của đúng bản/container.
+  OptiScaler chỉ có dữ liệu temporal khi game/API cung cấp; không có cho mọi game.
+- PPSSPP, Dolphin, PS2, RetroArch, 3DS...: thử Vulkan layer khi renderer/backend
+  thực sự đi qua Android Vulkan loader. OpenGL ES không được layer này xử lý.
+- Emulator nạp driver riêng, process32-bit, HDR/sRGB-format, shared-present,
+  multiple swapchains hoặc pNext presentation đặc biệt có thể không được hỗ trợ.
+
+THUẬT TOÁN VÀ HẠN CHẾ CỤ THỂ CỦA BẢN 0.1
+- GSR 1 dựa trên shader Qualcomm BSD-3-Clause; adapter đổi fragment sang compute.
+  Giữ bản nguồn và license ở third_party/, thêm guard tránh chia 0.
+- Flow: block matching SAD RGB có trọng số, hai chiều, lưới32xN block; ảnh đánh
+  giá chuyển động tương đương256 pixel chiều rộng, vùng tìm±4 pixel ở lưới đó.
+- Midpoint: warp theo flow trước/sau; kiểm tra nhất quán, sai màu, biên ảnh;
+  gate scene cut/tỉ lệ block hợp lệ. Khu vực thiếu tin cậy dùng frame hiện tại.
+  Gate là heuristic, không phải chứng minh hết warp/cut/HUD artifacts.
+- Layer0.1 cần một swapchain FIFO, SDR UNORM RGBA/BGRA8, graphics+compute queue,
+  image transfer/blit và một image dự phòng. Acquire dự phòng timeout0 để tránh
+  chặn chờ khi game đã giữ các ảnh; thiếu ảnh thì bỏ FG và reset history.
+- Layer xử lý cùng kích thước swapchain của game; chỉ lọc GSR1, chưa tự giảm
+  render resolution và chưa cung cấp lợi ích upscale temporal cho mọi game.
+- Presenter đồng bộ, dùng queue-idle và chèn yêu cầu present giữa cặp ảnh; có
+  thể làm chậm game hoặc tăng latency. Chưa phải async swapchain proxy hoàn chỉnh.
+- Không hỗ trợ bảo vệ nội dung, không can thiệp DRM/anti-cheat. Chỉ thử trên
+  các ứng dụng/giả lập người dùng kiểm soát.
+
+KIỂM CHỨNG ĐÃ CÓ TRƯỚC LẦN KHỞI ĐỘNG LẠI
+- Máy AYN Thor, QCS8550, Adreno740, Android13 user build; su uid0 Magisk30.7.
+- 4 shader build và spirv-val Vulkan1.1 thành công; APK có chữ ký v3.
+- 5/5 kiểm thử GPU qua: màu/alpha upscale, identical midpoint, cut fallback,
+  flow+4/-4 pixel đúng392/392 block trong vùng kiểm, midpoint sai số0 trên fixture
+  so với crossfade sai số trung bình1.5648. Chỉ là fixture tổng hợp, không gameplay.
+- Cảnh native640x360 lên Surface1920x920 đạt khoảng60 yêu cầu present/giây từ
+  khoảng30 input update/giây trong lần thử. Không gọi đây là60FPS hiển thị đã đo.
+- Layer mẫu có INSTANCE/DEVICE/SWAPCHAIN/PIPELINE và119 generated present requests
+  trên120 source presents trong một cửa sổ log. Đã nạp Khronos validation1.4.363,
+  bật synchronization validation, không thấy VUID/SYNC error trong log thu được.
+- research/ giữ selftest, ảnh, log và settings trước test. Không có đo điện năng,
+  phân tích high-speed camera, chất lượng trên bộ game hoặc latency đầu-cuối.
+
+NGUỒN CHÍNH ĐÃ ĐỐI CHIẾU
+Android external layers:
+https://developer.android.com/ndk/guides/graphics/validation-layer
+https://source.android.com/docs/core/graphics/implement-vulkan
+AOSP Android13 GraphicsEnvironment/GraphicsEnv:
+https://android.googlesource.com/platform/frameworks/base/+/android13-release/core/java/android/os/GraphicsEnvironment.java
+https://android.googlesource.com/platform/frameworks/native/+/refs/heads/android13-release/libs/graphicsenv/GraphicsEnv.cpp
+Qualcomm GSR1/GSR2:
+https://github.com/SnapdragonGameStudios/snapdragon-gsr
+https://github.com/SnapdragonGameStudios/snapdragon-gsr/blob/main/sgsr/v2/README.md
+AMD integration requirements:
+https://gpuopen.com/fidelityfx-super-resolution-3/
+NVIDIA integration inputs:
+https://github.com/NVIDIA-RTX/Streamline/blob/main/docs/ProgrammingGuideDLSS_G.md
+Qualcomm HTP backend:
+https://docs.qualcomm.com/bundle/publicresource/topics/80-63442-10/htp_backend.html
+Eden native FG:
+https://git.eden-emu.dev/eden-emu/eden/pulls/4263
+LSFG-Android:
+https://github.com/FrankBarretta/LSFG-Android-Application
+WinNative FG/OpenFlow:
+https://github.com/WinNative-Emu/WinNative/blob/main/docs/FRAME-GENERATION.md
+Zygisk public API:
+https://github.com/topjohnwu/zygisk-module-sample
+Khronos validation:
+https://github.com/KhronosGroup/Vulkan-ValidationLayers/releases/tag/vulkan-sdk-1.4.363.0
+KonaBess scope/requirements:
+https://github.com/KonaBess-Next/KonaBess-Next
+
+Kết quả sau reboot và kiểm tra từng package được ghi riêng trong research/ và
+STATUS-VI.txt. Chỉ những gì có bằng chứng runtime mới được ghi là đã kiểm chứng.

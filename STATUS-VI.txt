@@ -1,0 +1,84 @@
+THOR NATIVE FG 0.1 — TRẠNG THÁI CUỐI NGÀY 23/10/2026
+
+ĐÃ CÀI TRÊN MÁY
+- APK com.thor.nativefg, nhãn Thor Native FG, ARM64, ký development v3.
+- Module thor_native_fg_bootstrap đang bật; Magisk30.7 và Zygisk đang bật.
+- Thư viện module trên máy có SHA256 khớp bản build trên E.
+- Người dùng đã cho phép cài module/bật Zygisk/reboot. Đã reboot trong quá
+  trình sửa đóng gói Windows và kiểm chứng bootstrap.
+- Kết thúc thử nghiệm: FG inactive, debug.thorfg.target trống,
+  enable_gpu_debug_layers=0, các GPU layer target/list/provider đã xóa về trạng
+  thái trước test. Đóng các phiên emulator dùng để smoke test. Không bật FG
+  ngầm cho tất cả app. App Thor Native FG đang mở để người dùng tự chọn.
+- Đã gỡ hai package QA tạm: releaseprobe và validation provider.
+
+ĐÃ CHỨNG MINH
+- 5/5 GPU correctness tests qua trên Adreno740 (research/gpu-selftest.txt).
+- Cảnh mẫu thực hiện GSR1 upscale640x360 và motion-compensated midpoint bằng
+  Vulkan compute. Có khoảng60 yêu cầu present/s từ nguồn30 trong cảnh mẫu.
+- Android13 nạp layer trong một APK release không debuggable qua bootstrap;
+  log có target matched, PR_GET_DUMPABLE=1, INSTANCE/DEVICE/SWAPCHAIN/PIPELINE.
+  Trong một cửa sổ:120 source presents,119 generated present requests.
+  Xem research/release-bootstrap-log.txt.
+- Vulkan validation và synchronization validation nạp thành công, log thu được
+  không có VUID/SYNC error. Đây là phiên mẫu ngắn, không chứng minh mọi đường.
+- Bộ điều khiển ADB đã thử Enable→Status→Disable, lưu/khôi phục settings đúng.
+- Build/signature/shader validation thành công. APK cuối khởi động được, log
+  startup thu được không thấy FATAL/UnsatisfiedLinkError.
+
+MA TRẬN SMOKE TEST TRÊN CÁC GIẢ LẬP ĐÃ CÀI
+Ứng dụng                     Bootstrap     Vulkan layer      Pipeline FG
+PPSSPP1.14.4                 Đã xác nhận   Đã nạp            Đã chạy ở menu
+Eden Nightly6e1b120           Đã xác nhận   Đã nạp instance   Chưa xác nhận game
+Eden Duo                     Đã xác nhận   Đã nạp instance   Chưa xác nhận game
+DuckStation                  Đã xác nhận   Chưa thấy         Chưa xác nhận game
+RetroArch                    Đã xác nhận   Chưa thấy         Chưa xác nhận core
+melonDS                      Đã xác nhận   Chưa thấy         Chưa xác nhận game
+AzaharPlus (lime3ds package)  Đã xác nhận   Chưa thấy         Chưa xác nhận game
+AetherSX2                    Đã xác nhận   Chưa thấy         Chưa xác nhận game
+
+Đây là test mở giao diện, không chạy bộ ROM/game. Menu Java/OpenGL không chứng
+minh renderer in-game đi qua Vulkan. Không gọi cả8 app là đã hỗ trợ FG.
+Không thấy Winlator trong các package đã dò, nên chưa kiểm thử trên Winlator.
+
+PPSSPP đã có các yêu cầu present sinh thêm nhưng số lần thiếu image dự phòng
+cao. Không thể hứa nhân đôi ổn định; kiến trúc presenter đồng bộ0.1 còn hạn chế.
+Chưa có chứng cứ cải thiện FPS hiển thị thực, thời gian phản hồi hay chất lượng
+trong gameplay. Không có tuyên bố đạt DLSS hoặc120FPS cho mọi giả lập.
+
+DÙNG QUA USB/ADB (không cần cấp su cho APK điều khiển)
+powershell -NoProfile -ExecutionPolicy Bypass -File E:\ThorNative\scripts\control.ps1 -Action Enable -Package org.ppsspp.ppsspp
+Lưu game, thoát hẳn rồi mở lại PPSSPP, chọn Vulkan.
+powershell -NoProfile -ExecutionPolicy Bypass -File E:\ThorNative\scripts\control.ps1 -Action Status
+powershell -NoProfile -ExecutionPolicy Bypass -File E:\ThorNative\scripts\control.ps1 -Action Disable
+
+Hoặc dùng giao diện Thor Native FG, cấp root Magisk khi được hỏi.
+Nếu emulator có FG tích hợp như Eden thì ưu tiên tính năng đó, không bật chồng.
+Tắt/bật không tự force-stop game để bảo toàn phiên chơi; tự thoát/mở lại.
+
+PHẦN CÒN THIẾU ĐỂ THÀNH SẢN PHẨM SỬ DỤNG HẰNG NGÀY
+- Async swapchain proxy và pacing đáng tin cậy, xử lý image dự phòng/queue sâu.
+- Tích hợp resolution/depth/motion/HUD vào từng renderer khi cần temporal SR.
+- Đường riêng cho OpenGL ES và các emulator tự nạp driver/custom loader.
+- Bộ game có ground truth/occlusion/HUD/camera cuts, so sánh FG OFF/ON và đo
+  actual scanouts, GPU timestamps, latency, công suất và nhiệt kéo dài.
+- Model và benchmark riêng nếu sau này thử QNN/HTP. Không hứa2–3ms NPU.
+
+Toàn bộ dữ liệu nằm tại E:\ThorNative. Đọc REPORT-VI.txt để xem kiểm định báo
+cáo Gemini, thuật toán, nguồn tham khảo và giới hạn chi tiết.
+
+CẬP NHẬT SAU KHI NGƯỜI DÙNG MỞ PHIÊN DROIDDECK (23/10/2026)
+- DroidDeck0.5.0 com.droiddeck.launcher đã nạp Thor Native FG vào tiến trình.
+- Log có DEVICE, swapchain1920x1080 eligible=1 và PIPELINE ready.
+- Một mốc ghi120 source presents/119 generated present requests; mốc khác660
+  source/649 generated requests và5 spare skips. Đây là yêu cầu present, không
+  phải số frame khác nhau đã được đo trên panel hay benchmark lợi ích FPS.
+- Vì thế, tình trạng 'chưa xác nhận layer chạy với DroidDeck' ở các trao đổi
+  trước đã được thay bằng bằng chứng runtime mới này.
+- Layer tự chạy sau khi bật bằng Thor Native FG và mở lại tiến trình mục tiêu.
+  Không cần bật Win-FG/LSFG của DroidDeck để dùng thuật toán của Thor Native FG.
+- Vẫn chưa xác nhận chất lượng khi cut nhanh bằng gameplay/clip đối chiếu.
+- Upscale trong layer vẫn là SGSR1 ở cùng kích thước; chưa có temporal SR kiểu
+  DLSS, chưa giảm render resolution, không phải NVIDIA DLSS.
+- Xem research/droiddeck-active-layer-log.txt. Không tự tắt/khởi động lại phiên
+  game của người dùng trong lần đọc trạng thái này.

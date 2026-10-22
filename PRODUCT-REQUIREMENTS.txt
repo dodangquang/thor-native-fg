@@ -1,0 +1,51 @@
+THOR — independent super resolution + frame generation product objective
+User objective: continue until an actually usable DLSS-like product exists.
+This goal is NOT satisfied by loading a layer, counting submissions, a demo,
+same-resolution sharpening, or recommending another app's frame generator.
+
+Required end state (all remain required until supported by evidence):
+1. One independent controller/engine on AYN Thor. No external FG app or Lossless
+   DLL dependency. Emulator/game remains the source, not the FG implementation.
+2. Real lower-render-resolution -> display-resolution reconstruction in a game,
+   with an independently implemented/integrated SR algorithm. Record the input
+   and output sizes and demonstrate useful quality/performance against native
+   rendering and simple bilinear. Do not label same-size sharpening as DLSS.
+3. Real independently generated intermediate frames, paced and displayed.
+   Quantify source cadence, generated/rejected frames, actual presentation,
+   compute cost, added latency, and source-game performance separately.
+4. Rapid cuts/fast camera movement: reject unreliable interpolation, reset
+   temporal history, and recover without old-scene warping or mixed scenes.
+   Validate on adversarial fixtures AND relevant gameplay, not one color cut.
+5. Preserve game timing/input and HUD readability. No capture feedback loops.
+   Document and test occlusion/disocclusion, thin details and scene transitions.
+6. Cover the user's emulator use, including DroidDeck. Track each installed
+   emulator, backend and custom-loader path separately. Do not infer universal
+   compatibility from a startup test or one Vulkan target. OpenGL ES remains
+   outstanding until a working path has been built and verified.
+7. Installable, recoverable app/configuration, clear activation/status, resource
+   cleanup, resize/restart handling and a reliable off/restore action. Defaults
+   and status must represent actual runtime state.
+8. Sustained testing on the actual Thor: compare quality, FPS, thermal behavior
+   and latency with FG/SR off, SR-only and SR+FG. Mere compilation/validation or
+   a higher counter does not prove the user goal complete.
+
+NVIDIA's proprietary binary/model is not an implementation option on Adreno.
+The requested equivalent function/quality remains the target; names and claims
+must accurately distinguish neural/temporal/spatial SR and measured results.
+
+Current verified baseline and gaps:
+- Android Vulkan layer and scoped Zygisk bootstrap run in DroidDeck0.5.0.
+- Existing motion estimator is a coarse small-window block search. Its current
+  scene fallback substitutes a current-frame image but still presents it as a
+  generated frame; there is no cut holdoff/reset or demonstrated pacing quality.
+- The layer processes 1920x1080 -> 1920x1080: no real in-game SR yet.
+- Queue-idle synchronization and opportunistic extra acquisition can stall the
+  source and add latency. Async scheduling/proxy presentation remains required.
+- No gameplay quality, end-to-end latency or sustained-benefit proof exists.
+
+Next evidence-driven work:
+A. Build adversarial GPU fixtures for cuts/fast motion, expose quality decisions,
+   and actually suppress generated presentation for rejected frame pairs.
+B. Evaluate a mobile neural SR model/runtime and an actual low-resolution source
+   path; retain full scope rather than calling a spatial filter the end product.
+C. Replace the blocking presenter and coarse flow as measurements require.

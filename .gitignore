@@ -1,0 +1,8 @@
+/build/
+/research/
+/module/zygisk/
+*.apk
+*.apk.idsig
+*.zip
+*.jks
+/work/
