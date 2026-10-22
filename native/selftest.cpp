@@ -1,4 +1,6 @@
 #include "engine.hpp"
+#include "shaders.hpp"
+#include <algorithm>
 #include <cstdio>
 #include <cmath>
 #include <cstring>
@@ -40,6 +42,38 @@ int main(){
    bool repeatedSafe=true;for(int i=0;i<6;i++){solid(i%2?240:20,i%2?10:220,50);process(pixels);repeatedSafe&=!e.readQuality().allow;read(e.mid);repeatedSafe&=memcmp(mapped,pixels.data(),pixels.size())==0;}check(repeatedSafe,"rapid alternating cuts never mix old and new scene in fixture");
    // This timing includes CPU command recording, submission and a queue idle wait.
    auto start=std::chrono::steady_clock::now();for(int i=0;i<20;i++){frame(4+(i%3));process(pixels);}printf("TIMING 256x144 to 512x288 record_submit_wait_mean_ms=%.3f (not pure GPU time or latency)\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()/20);
+   {
+    Engine spatial;spatial.initSpatial(a,mem,{256,144},{512,288});VkImageBlit region{};region.srcSubresource=region.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};region.srcOffsets[1]={256,144,1};region.dstOffsets[1]={512,288,1};
+    read(e.upCurrent);std::vector<uint8_t> expected(bytes,bytes+512*288*4);
+    begin();spatial.recordSpatial(cmd,source.image,VK_IMAGE_LAYOUT_GENERAL,region);submit();read(spatial.upCurrent);
+    check(memcmp(mapped,expected.data(),expected.size())==0,"spatial-only SR matches independently executed SGSR1 path");
+    read(source);check(memcmp(mapped,pixels.data(),pixels.size())==0,"spatial SR leaves the application's source pixels unchanged");
+    begin();spatial.recordSpatial(cmd,source.image,VK_IMAGE_LAYOUT_GENERAL,region);submit();read(spatial.upCurrent);
+    check(memcmp(mapped,expected.data(),expected.size())==0,"spatial SR resource reuse preserves output");
+   }
+   {
+    halves(false);process(pixels);Engine crop;crop.initSpatial(a,mem,{128,72},{512,288});VkImageBlit region{};region.srcSubresource=region.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};region.srcOffsets[0]={128,16,0};region.srcOffsets[1]={256,88,1};region.dstOffsets[1]={512,288,1};
+    begin();crop.recordSpatial(cmd,source.image,VK_IMAGE_LAYOUT_GENERAL,region);submit();read(crop.upCurrent);bool correct=true;for(int i=0;i<512*288*4;i+=4)if(abs(int(bytes[i])-30)>1||abs(int(bytes[i+1])-200)>1||abs(int(bytes[i+2])-50)>1||bytes[i+3]!=255)correct=false;
+    check(correct,"spatial SR honors the application's source crop without sampling outside it");
+    solid(40,90,160);for(size_t i=3;i<pixels.size();i+=4)pixels[i]=77;process(pixels);begin();crop.recordSpatial(cmd,source.image,VK_IMAGE_LAYOUT_GENERAL,region);submit();read(crop.upCurrent);bool alpha=true;for(size_t i=3;i<512*288*4;i+=4)alpha&=abs(int(bytes[i])-77)<=1;check(alpha,"spatial SR preserves non-opaque input alpha");
+    Engine passthrough;passthrough.init(a,mem,{256,144},{256,144});begin();passthrough.record(cmd,source.image,VK_IMAGE_LAYOUT_GENERAL,false);submit();read(passthrough.upCurrent);
+    check(memcmp(mapped,pixels.data(),pixels.size())==0,"present-time FG preserves real frame exactly without a second SGSR filter");
+   }
+   if(families[family].timestampValidBits){
+    Engine spatial;spatial.initSpatial(a,mem,{640,360},{1920,1080});auto rendered=e.createImage({640,360},VK_FORMAT_R8G8B8A8_UNORM,VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+    auto scene=e.createPipeline(scene_spv,sizeof(scene_spv),{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},16);auto set=e.allocate(scene);e.storage(set,0,rendered);
+    VkQueryPool poolTime{};VkQueryPoolCreateInfo query{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};query.queryType=VK_QUERY_TYPE_TIMESTAMP;query.queryCount=2;requireVk(vkCreateQueryPool(device,&query,nullptr,&poolTime),"TimestampPool");
+    VkImageBlit region{};region.srcSubresource=region.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};region.srcOffsets[1]={640,360,1};region.dstOffsets[1]={1920,1080,1};std::vector<double> samples;
+    for(int iteration=0;iteration<15;iteration++){
+     begin();e.barrier(cmd,rendered.image,iteration?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL,iteration?VK_ACCESS_TRANSFER_READ_BIT:0,VK_ACCESS_SHADER_WRITE_BIT);
+     struct{int32_t size[2];float time;int32_t cut;} push{{640,360},float(iteration)/30.0f,0};a.CmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,scene.pipeline);a.CmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,scene.layout,0,1,&set,0,nullptr);a.CmdPushConstants(cmd,scene.layout,VK_SHADER_STAGE_COMPUTE_BIT,0,16,&push);a.CmdDispatch(cmd,80,45,1);
+     vkCmdResetQueryPool(cmd,poolTime,0,2);vkCmdWriteTimestamp(cmd,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,poolTime,0);spatial.recordSpatial(cmd,rendered.image,VK_IMAGE_LAYOUT_GENERAL,region);vkCmdWriteTimestamp(cmd,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,poolTime,1);submit();
+     uint64_t ticks[2]{};requireVk(vkGetQueryPoolResults(device,poolTime,0,2,sizeof(ticks),ticks,sizeof(uint64_t),VK_QUERY_RESULT_64_BIT|VK_QUERY_RESULT_WAIT_BIT),"TimestampRead");uint64_t delta=ticks[1]-ticks[0];if(families[family].timestampValidBits<64)delta&=(1ull<<families[family].timestampValidBits)-1;
+     if(iteration>=5)samples.push_back(double(delta)*props.limits.timestampPeriod/1000000.0);
+    }
+    std::sort(samples.begin(),samples.end());printf("GPU_SPATIAL 640x360 to 1920x1080 copy+SGSR1 median_ms=%.3f min_ms=%.3f max_ms=%.3f n=%zu warmup=5 (synthetic source; excludes display blit, FG, CPU and latency)\n",samples[samples.size()/2],samples.front(),samples.back(),samples.size());
+    vkDestroyQueryPool(device,poolTime,nullptr);a.DestroyPipeline(device,scene.pipeline,nullptr);a.DestroyPipelineLayout(device,scene.layout,nullptr);a.DestroyDescriptorSetLayout(device,scene.setLayout,nullptr);a.DestroyImageView(device,rendered.view,nullptr);a.DestroyImage(device,rendered.image,nullptr);a.FreeMemory(device,rendered.memory,nullptr);
+   }
    a.UnmapMemory(device,bufferMemory);a.DestroyBuffer(device,buffer,nullptr);a.FreeMemory(device,bufferMemory,nullptr);a.DestroyImageView(device,source.view,nullptr);a.DestroyImage(device,source.image,nullptr);a.FreeMemory(device,source.memory,nullptr);a.DestroyCommandPool(device,pool,nullptr);
   }
   a.DestroyDevice(device,nullptr);device={};vkDestroyInstance(instance,nullptr);instance={};printf("RESULT checks=%d failures=%d\n",checks,failures);return failures?1:0;

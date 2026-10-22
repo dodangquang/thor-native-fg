@@ -19,6 +19,7 @@ $start=$shader.IndexOf('float fastLanczos2')
 $shader=$shader.Substring($start).Replace('highp ','').Replace('in_TEXCOORD0.xy','uv').Replace('in_TEXCOORD0.x','uv.x').Replace('in_TEXCOORD0.y','uv.y')
 $shader=$shader.Replace('void main()','void main()').Replace('int mode = OperationMode;', 'ivec2 at=ivec2(gl_GlobalInvocationID.xy); if(any(greaterThanEqual(at,p.outputSize)))return; vec2 uv=(vec2(at)+0.5)/vec2(p.outputSize); vec2 sourceSize=vec2(textureSize(ps0,0)); vec4 ViewportInfo[1]; ViewportInfo[0]=vec4(1.0/sourceSize,sourceSize); int mode = OperationMode;')
 $shader=$shader.Replace('int mode = OperationMode;','const int mode = OperationMode;').Replace('out_Target0.xyzw = color;','imageStore(result,at,color);').Replace('float std = 2.181818/sum;','float std = 2.181818/max(sum,0.000001);').Replace('float finalY = aWY.y/aWY.x;','float finalY = aWY.y/(abs(aWY.x)<0.000001?0.000001:aWY.x);')
+$shader=$shader.Replace('color.w = 1.0;', 'color.w = textureLod(ps0,uv,0.0).a;')
 $prefix=@'
 #version 450
 // SGSR1 filtering: Copyright (c) 2025 Qualcomm Innovation Center, Inc.

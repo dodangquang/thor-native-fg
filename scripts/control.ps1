@@ -1,6 +1,7 @@
 param(
  [ValidateSet('Enable','Disable','Status')][string]$Action='Status',
  [ValidatePattern('^[A-Za-z0-9_.]+$')][string]$Package,
+ [switch]$NoUpscale,
  [string]$Serial='c2b670a0'
 )
 $ErrorActionPreference='Stop'
@@ -15,6 +16,7 @@ if($Action -eq 'Enable'){
  if(-not(Test-Path -LiteralPath $backup)){
   $previous=[ordered]@{};foreach($key in $keys){$previous[$key]=Adb @('shell','settings','get','global',$key)}
   $previous.thor_enabled=Adb @('shell','getprop','debug.thorfg.enabled');$previous.thor_target=Adb @('shell','getprop','debug.thorfg.target')
+  $previous.thor_sr=Adb @('shell','getprop','debug.thorfg.sr')
   $previous | ConvertTo-Json | Set-Content -LiteralPath $backup
  }
  $null=Adb @('shell','settings','put','global','enable_gpu_debug_layers','1')
@@ -23,15 +25,18 @@ if($Action -eq 'Enable'){
  $null=Adb @('shell','settings','put','global','gpu_debug_layer_app','com.thor.nativefg')
  $null=Adb @('shell','setprop','debug.thorfg.target',$Package)
  $null=Adb @('shell','setprop','debug.thorfg.enabled','1')
+ $null=Adb @('shell','setprop','debug.thorfg.sr',$(if($NoUpscale){'0'}else{'1'}))
  Write-Output "Configured $Package. Save your game, fully exit and reopen the emulator, then select Vulkan. Use Status to verify actual loading."
 }elseif($Action -eq 'Disable'){
  $null=Adb @('shell','setprop','debug.thorfg.enabled','0')
+ $null=Adb @('shell','setprop','debug.thorfg.sr','0')
  $null=Adb @('shell',"setprop debug.thorfg.target ''")
  if(Test-Path -LiteralPath $backup){
   $previous=Get-Content -LiteralPath $backup -Raw | ConvertFrom-Json
   foreach($key in $keys){$value=$previous.$key;if(-not $value -or $value -eq 'null'){$null=Adb @('shell','settings','delete','global',$key)}else{$null=Adb @('shell','settings','put','global',$key,$value)}}
   if($previous.thor_target -match '^[A-Za-z0-9_.]+$'){$null=Adb @('shell','setprop','debug.thorfg.target',$previous.thor_target)}
   if($previous.thor_enabled -eq '1'){$null=Adb @('shell','setprop','debug.thorfg.enabled','1')}
+  if($previous.thor_sr -eq '1'){$null=Adb @('shell','setprop','debug.thorfg.sr','1')}
   Remove-Item -LiteralPath $backup
  }
  Write-Output 'Disabled and restored the saved settings. Restart the emulator to unload its layer.'

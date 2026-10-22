@@ -32,7 +32,7 @@ public class FpsOverlayService extends Service {
             .setContentIntent(open).addAction(new Notification.Action.Builder(null,"Ẩn ô FPS",hide).build()).setOngoing(true).build();
         startForeground(41,notification);
         windows=(WindowManager)getSystemService(WINDOW_SERVICE);hud=new TextView(this);hud.setTextColor(Color.rgb(199,255,235));hud.setTextSize(11);
-        hud.setPadding(dp(9),dp(5),dp(9),dp(5));hud.setMaxWidth(dp(255));
+        hud.setPadding(dp(7),dp(4),dp(7),dp(4));hud.setMaxWidth(dp(220));hud.setSingleLine(true);
         GradientDrawable background=new GradientDrawable();background.setColor(0xCC10191F);background.setCornerRadius(dp(7));hud.setBackground(background);
         position=new WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,PixelFormat.TRANSLUCENT);
@@ -41,7 +41,7 @@ public class FpsOverlayService extends Service {
             public boolean onTouch(View view,MotionEvent event){
                 if(event.getAction()==MotionEvent.ACTION_DOWN){downX=event.getRawX();downY=event.getRawY();oldX=position.x;oldY=position.y;dragged=false;return true;}
                 if(event.getAction()==MotionEvent.ACTION_MOVE){float dx=event.getRawX()-downX,dy=event.getRawY()-downY;if(Math.abs(dx)+Math.abs(dy)>dp(5))dragged=true;if(dragged){position.x=oldX+(int)dx;position.y=oldY+(int)dy;clampPosition();windows.updateViewLayout(hud,position);}return true;}
-                if(event.getAction()==MotionEvent.ACTION_UP){if(dragged)getPreferences().edit().putInt("hud_x",position.x).putInt("hud_y",position.y).apply();else{view.performClick();Toast.makeText(FpsOverlayService.this,"FPS nguồn = số khung ứng dụng gửi vào engine. FG gửi/s = yêu cầu present sinh thêm, chưa phải FPS thực của màn hình. SR chỉ báo bật khi kích thước đầu ra lớn hơn đầu vào.",Toast.LENGTH_LONG).show();}return true;}
+                if(event.getAction()==MotionEvent.ACTION_UP){if(dragged)getPreferences().edit().putInt("hud_x",position.x).putInt("hud_y",position.y).apply();else{view.performClick();Toast.makeText(FpsOverlayService.this,"Gốc = khung ứng dụng gửi vào engine. FG ≈ gốc + yêu cầu khung nội suy gửi thêm; chưa phải FPS panel đã đo. Xem trạng thái SR trong app.",Toast.LENGTH_LONG).show();}return true;}
                 return true;
             }});
         try{windows.addView(hud,position);}catch(RuntimeException failure){stopSelf();return;}
@@ -89,10 +89,10 @@ public class FpsOverlayService extends Service {
     private final Runnable refresh=new Runnable(){public void run(){
         if(stopped||hud==null)return;
         RuntimeMetrics value=metrics;
-        if(!error.isEmpty())hud.setText("THOR · Chưa có dữ liệu\n"+error);
-        else if(!active)hud.setText("THOR · FG: TẮT\nSR: chưa chạy");
-        else if(targetPid==0)hud.setText("THOR · Đã chọn ứng dụng\nChờ mở giả lập bằng Vulkan");
-        else if(value==null||!value.fresh(SystemClock.elapsedRealtime()))hud.setText("THOR · Chờ dữ liệu engine\nFG/SR: chưa xác nhận đang chạy");
+        if(!error.isEmpty())hud.setText("Gốc — | FG —");
+        else if(!active)hud.setText("Gốc — | FG TẮT");
+        else if(targetPid==0)hud.setText("Gốc — | FG —");
+        else if(value==null||!value.fresh(SystemClock.elapsedRealtime()))hud.setText("Gốc — | FG —");
         else hud.setText(value.hud());
         main.postDelayed(this,500);
     }};

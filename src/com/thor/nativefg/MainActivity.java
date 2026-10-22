@@ -17,6 +17,7 @@ import java.util.concurrent.Executors;
 public class MainActivity extends Activity {
     private TextView status;
     private Spinner packages;
+    private CheckBox upscale;
     private final ArrayList<String> ids=new ArrayList<>();
     private final java.util.concurrent.ExecutorService worker=Executors.newSingleThreadExecutor();
     private final String[] keys={"enable_gpu_debug_layers","gpu_debug_app","gpu_debug_layers","gpu_debug_layer_app"};
@@ -27,18 +28,19 @@ public class MainActivity extends Activity {
         LinearLayout page=new LinearLayout(this);page.setOrientation(1);page.setPadding(36,28,36,24);page.setBackgroundColor(Color.rgb(12,20,33));
         ScrollView scroll=new ScrollView(this);scroll.addView(page);setContentView(scroll);
         TextView title=text("THOR NATIVE FG",26);title.setTextColor(Color.rgb(87,222,212));page.addView(title);
-        page.addView(text("Frame gen độc lập + GSR 1 • Bản thử nghiệm 0.2",16));
+        page.addView(text("Frame gen độc lập + GSR 1 • Bản thử nghiệm 0.3",16));
         page.addView(text("Không phải NVIDIA DLSS. Chưa xác nhận tương thích mọi giả lập hay tăng FPS thực tế. Layer hỗ trợ thử nghiệm Vulkan FIFO, SDR RGBA/BGRA8; OpenGL ES và driver nạp riêng có thể không đi qua layer.",15));
-        page.addView(text("Engine FG thuộc Thor Native FG. Khi thử, tắt FG tích hợp trong giả lập để tránh nội suy hai lần. SR trong game hiện chưa giảm độ phân giải render; ô trạng thái sẽ ghi ‘chưa upscale’.",15));
+        page.addView(text("Engine FG thuộc Thor Native FG. Khi thử, tắt FG tích hợp trong giả lập để tránh nội suy hai lần. GSR 1 xử lý ảnh render thấp khi đường hiển thị Vulkan phù hợp; hãy đặt độ phân giải thấp trong game/giả lập. Chỉ báo ON khi có pass upscale được gửi thật.",15));
         button(page,"Chạy cảnh mẫu Vulkan · GSR 1 + FG 2x",()->startActivity(new Intent(this,DemoActivity.class)));
         page.addView(text("Chọn giả lập / ứng dụng (mỗi lần một tiến trình)",17));
         packages=new Spinner(this);loadPackages();page.addView(packages);
+        upscale=new CheckBox(this);upscale.setText("Upscale GSR 1 khi game render độ phân giải thấp");upscale.setTextColor(Color.rgb(223,233,246));upscale.setChecked(getSharedPreferences("thor",MODE_PRIVATE).getBoolean("upscale",true));page.addView(upscale);
         button(page,"Bật FG của Thor và mở ứng dụng",()->enableSelected());
         button(page,"Hiện ô FPS + trạng thái FG/SR",()->showOverlay());
         button(page,"Ẩn ô FPS (giữ cấu hình FG)",()->stopService(new Intent(this,FpsOverlayService.class)));
         button(page,"Tắt layer · khôi phục cấu hình trước",()->runJob(()->{restore();return "Đã khôi phục cấu hình. Đóng/mở lại giả lập để gỡ layer khỏi tiến trình.";}));
         button(page,"Đọc trạng thái và log layer",()->runJob(()->readStatus()));
-        status=text("Chọn ứng dụng → bật FG của Thor → cấp root → lưu game, thoát hẳn rồi mở lại giả lập và chọn Vulkan. Cấu hình thành công chưa chứng minh FG đã chạy.\n\nÔ FPS lấy dữ liệu từ engine trong tiến trình giả lập. ‘Nguồn FPS’ và ‘FG gửi/s’ là tốc độ gửi khung, chưa phải FPS panel. Nếu thiếu dữ liệu hoặc game tạm dừng, ô sẽ chuyển sang trạng thái chờ. Kéo ô để di chuyển; chạm để xem ý nghĩa số đo.\n\nGSR 1 trong layer vẫn lọc cùng kích thước, chưa phải upscale thật. Không có nút DLSS hoàn chỉnh ở bản này. Cảnh mẫu có upscale từ 640×360. Bản 0.2 bổ sung loại bỏ frame nội suy khi cut hoặc chuyển động không đáng tin.\n\nNPU, GSR 2, FSR 3 và hệ số 3x chưa được tích hợp.",14);page.addView(status);
+        status=text("Chọn ứng dụng → bật FG của Thor → cấp root → lưu game, thoát hẳn rồi mở lại giả lập và chọn Vulkan. Cấu hình thành công chưa chứng minh FG/SR đã chạy.\n\nÔ FPS lấy dữ liệu từ engine trong tiến trình giả lập. ‘Nguồn FPS’ và ‘FG gửi/s’ là tốc độ gửi khung, chưa phải FPS panel. Nếu thiếu dữ liệu mới, ô chuyển sang chờ. Kéo để di chuyển; chạm để xem ý nghĩa số đo.\n\nBản 0.3 thử GSR 1 ngay ở bước phóng ảnh Vulkan cuối: ví dụ game render 960×540, xuất 1920×1080. App không tự đổi độ phân giải game. Đường hiển thị khác hoặc ảnh đã bằng cỡ màn hình sẽ báo ‘chưa upscale’. Đây là spatial SR, chưa phải DLSS/temporal SR. Khi đổi SR hoặc tắt layer, mở lại giả lập để bỏ các lệnh GPU đã ghi trước đó.\n\nFG có loại bỏ cặp cut/chuyển động kém tin cậy. NPU, GSR 2, FSR 3 và hệ số 3x chưa được tích hợp.",14);page.addView(status);
         String previous=getSharedPreferences("thor",MODE_PRIVATE).getString("selected_package","");for(int i=0;i<ids.size();i++)if(ids.get(i).equals(previous)){packages.setSelection(i);break;}
         if(getIntent().getBooleanExtra("demo",false)){Intent demo=new Intent(this,DemoActivity.class);demo.putExtra("mode",getIntent().getIntExtra("mode",2));startActivity(demo);}
         if(getIntent().getBooleanExtra("hud",false))showOverlay();
@@ -71,11 +73,12 @@ public class MainActivity extends Activity {
     }
     private File backup(){return new File(getFilesDir(),"settings-before.json");}
     private void saveBackup()throws Exception{
-        if(backup().exists())return;JSONObject old=new JSONObject();for(String key:keys)old.put(key,root("settings get global "+key));old.put("thor_enabled",root("getprop debug.thorfg.enabled"));old.put("thor_target",root("getprop debug.thorfg.target"));
+        if(backup().exists())return;JSONObject old=new JSONObject();for(String key:keys)old.put(key,root("settings get global "+key));old.put("thor_enabled",root("getprop debug.thorfg.enabled"));old.put("thor_target",root("getprop debug.thorfg.target"));old.put("thor_sr",root("getprop debug.thorfg.sr"));
         try(FileOutputStream f=new FileOutputStream(backup())){f.write(old.toString().getBytes("UTF-8"));f.getFD().sync();}
     }
     private void enableSelected(){
         if(ids.isEmpty())return;final String id=ids.get(packages.getSelectedItemPosition());
+        final boolean sr=upscale.isChecked();getSharedPreferences("thor",MODE_PRIVATE).edit().putBoolean("upscale",sr).apply();
         getSharedPreferences("thor",MODE_PRIVATE).edit().putString("selected_package",id).apply();
         runJob(()->{
             if(!id.matches("[A-Za-z0-9_.]+"))throw new IOException("Invalid package");
@@ -86,7 +89,7 @@ public class MainActivity extends Activity {
             saveBackup();
             if(id.length()>90)throw new IOException("Package name too long for Android property");
             if(module)root("setprop debug.thorfg.target "+id);
-            root("settings put global enable_gpu_debug_layers 1 && settings put global gpu_debug_app "+id+" && settings put global gpu_debug_layers VK_LAYER_THOR_native_fg && settings put global gpu_debug_layer_app com.thor.nativefg && setprop debug.thorfg.enabled 1");
+            root("settings put global enable_gpu_debug_layers 1 && settings put global gpu_debug_app "+id+" && settings put global gpu_debug_layers VK_LAYER_THOR_native_fg && settings put global gpu_debug_layer_app com.thor.nativefg && setprop debug.thorfg.sr "+(sr?"1":"0")+" && setprop debug.thorfg.enabled 1");
             Intent launch=getPackageManager().getLaunchIntentForPackage(id);
             // Do not force-stop an emulator from the UI: the user may have unsaved gameplay.
             runOnUiThread(()->{if(Settings.canDrawOverlays(this))showOverlay();if(launch!=null)startActivity(launch);});
@@ -94,13 +97,14 @@ public class MainActivity extends Activity {
         });
     }
     private void restore()throws Exception{
-        root("setprop debug.thorfg.enabled 0; setprop debug.thorfg.target ''");
+        root("setprop debug.thorfg.enabled 0; setprop debug.thorfg.sr 0; setprop debug.thorfg.target ''");
         if(!backup().exists())return;
         ByteArrayOutputStream bytes=new ByteArrayOutputStream();try(FileInputStream in=new FileInputStream(backup())){byte[] b=new byte[4096];int n;while((n=in.read(b))>0)bytes.write(b,0,n);}
         JSONObject old=new JSONObject(bytes.toString("UTF-8"));
         for(String key:keys){String value=old.getString(key);if(value.equals("null")||value.isEmpty())root("settings delete global "+key);else root("settings put global "+key+" '"+value.replace("'","'\\''")+"'");}
         String target=old.optString("thor_target","");if(target.matches("[A-Za-z0-9_.]+")&&target.length()<91)root("setprop debug.thorfg.target "+target);
         String property=old.optString("thor_enabled","");if(property.equals("1"))root("setprop debug.thorfg.enabled 1");if(!backup().delete())throw new IOException("Cannot remove restored backup");
+        root("setprop debug.thorfg.sr "+("1".equals(old.optString("thor_sr",""))?"1":"0"));
     }
     private String readStatus()throws Exception{
         String target=root("settings get global gpu_debug_app");
@@ -110,7 +114,9 @@ public class MainActivity extends Activity {
         if(!pid.matches("[0-9]+"))return "Target: "+target+"\nChưa có tiến trình đang chạy. Mở lại giả lập rồi kiểm tra.";
         String logs=root("logcat -d --pid="+pid+" -t 3000 -s ThorNativeBootstrap:I ThorNativeLayer:I ThorNativeDemo:I '*:S'");
         if(logs.length()>18000)logs=logs.substring(logs.length()-18000);
-        return "Target / active / PID:\n"+config+"\n"+pid+"\n\n"+logs+"\n\nNếu chưa có INSTANCE/DEVICE/SWAPCHAIN thì chưa xác nhận layer hoạt động. COUNTERS là số yêu cầu present; không phải FPS hiển thị hay độ trễ đã đo.";
+        RuntimeMetrics latest=null;for(String line:logs.split("\\r?\\n")){RuntimeMetrics value=RuntimeMetrics.parse(line,SystemClock.elapsedRealtime());if(value!=null&&value.pid==Integer.parseInt(pid))latest=value;}
+        String summary=latest!=null&&latest.fresh(SystemClock.elapsedRealtime())?latest.hud()+"\n"+latest.detail():"Chờ dữ liệu FG/SR mới của tiến trình này.";
+        return summary+"\n\nTarget / active / PID:\n"+config+"\n"+pid+"\n\n"+logs+"\n\nNếu chưa có INSTANCE/DEVICE/SWAPCHAIN thì chưa xác nhận layer hoạt động. COUNTERS là số yêu cầu present; không phải FPS hiển thị hay độ trễ đã đo.";
     }
     interface Work {String run()throws Exception;}
     private void runJob(Work work){busy=true;status.setText("Đang xử lý… Nếu Magisk hỏi, cần cấp quyền root để thay cấu hình layer.");worker.execute(()->{String result;try{result=work.run();}catch(Exception e){result="Lỗi: "+e.getMessage();}final String value=result;runOnUiThread(()->{busy=false;status.setText(value);});});}

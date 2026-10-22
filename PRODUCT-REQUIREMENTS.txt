@@ -39,13 +39,17 @@ Current verified baseline and gaps:
   cut/unreliable pairs before acquiring/presenting a generated frame, preserving
   the original image and holding off for2pairs.21GPU fixtures pass; gameplay
   quality and pacing are not yet demonstrated by those fixtures.
-- The layer processes 1920x1080 -> 1920x1080: no real in-game SR yet.
+- Version0.3 adds a real low-resolution application-blit -> display SGSR1 path,
+  with per-command resources, compute-state restoration and source-crop support.
+  External-layer output matched independent SGSR reference pixels in3frames;
+  an SR-off negative control differed as expected. In-game low-res SR benefit
+  and quality are still unverified, so the game requirement remains outstanding.
 - Queue-idle synchronization and opportunistic extra acquisition can stall the
   source and add latency. Async scheduling/proxy presentation remains required.
 - No gameplay quality, end-to-end latency or sustained-benefit proof exists.
-- A movable HUD uses native per-PID telemetry with stale-data expiry, reports
-  incoming/generated request rates separately and refuses to label same-size
-  filtering as active SR. Runtime and stop/cleanup were checked on Thor.
+- A movable HUD uses native per-PID/boot-clock telemetry with stale-data expiry.
+  It now shows only source FPS and an explicitly estimated post-FG request rate,
+  per the user's request; detailed SR status remains in the controller app.
 - Thor_DLSS_Source.zip was reviewed separately. Its duplicate-present wrapper
   and disconnected shaders do not supply the missing FG/SR engine. See the
   source review; do not merge that wrapper as a shortcut to product completion.

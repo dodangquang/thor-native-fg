@@ -1,4 +1,5 @@
 #include "engine.hpp"
+#include "sr_state.hpp"
 #include <vulkan/vk_layer.h>
 #include <android/log.h>
 #include <sys/system_properties.h>
@@ -7,7 +8,9 @@
 #include <mutex>
 #include <unordered_map>
 #include <chrono>
+#include <algorithm>
 #include <unistd.h>
+#include <time.h>
 #define LOG(...) __android_log_print(ANDROID_LOG_INFO,"ThorNativeLayer",__VA_ARGS__)
 #define EXPORT extern "C" __attribute__((visibility("default")))
 static const char* layerName="VK_LAYER_THOR_native_fg";
@@ -20,12 +23,18 @@ struct Swap {
  uint32_t family=~0u;uint64_t sources=0,generated=0,skipped=0,cutSkipped=0,holdSkipped=0,flowSkipped=0;
  std::chrono::steady_clock::time_point metricsAt=std::chrono::steady_clock::now();
  uint64_t metricsSources=0,metricsGenerated=0;
+ std::vector<SpatialFrame> spatialFrames;
+ VkExtent2D spatialInput{};bool spatialActive=false;uint64_t spatialPresents=0;
+ bool spatialCompatible=false;
 };
 struct Device {
  VkDevice handle{};VkPhysicalDevice physical{};std::shared_ptr<Instance> instance;Api a;
  VkPhysicalDeviceMemoryProperties memory{};std::vector<VkQueueFamilyProperties> families;
  PFN_vkGetDeviceProcAddr gdpa{};PFN_vkSetDeviceLoaderData setLoaderData{};
  std::unordered_map<VkSwapchainKHR,std::shared_ptr<Swap>> swaps;std::mutex mutex;
+ std::unordered_map<VkCommandPool,uint32_t> appPools;
+ std::unordered_map<VkCommandBuffer,SpatialCommands> appCommands;
+ bool spatialDiagnostic=false;
 };
 struct Queue { std::shared_ptr<Device> device;uint32_t family; };
 static std::mutex globalMutex;
@@ -35,18 +44,22 @@ static std::unordered_map<VkQueue,Queue> queues;
 static std::shared_ptr<Device> deviceFor(VkDevice device){std::lock_guard<std::mutex> l(globalMutex);auto i=devices.find(key(device));return i==devices.end()?nullptr:i->second;}
 static std::shared_ptr<Instance> instanceFor(const void* instance){std::lock_guard<std::mutex> l(globalMutex);auto i=instances.find(key(instance));return i==instances.end()?nullptr:i->second;}
 static bool enabled(){char value[PROP_VALUE_MAX]{};__system_property_get("debug.thorfg.enabled",value);return strcmp(value,"1")==0;}
+static bool srEnabled(){char value[PROP_VALUE_MAX]{};__system_property_get("debug.thorfg.sr",value);return strcmp(value,"1")==0;}
+#include "sr_hooks.inc"
 static void reportMetrics(Swap& s,uint32_t qualityFlags,double blockingMs){
  auto now=std::chrono::steady_clock::now();double seconds=std::chrono::duration<double>(now-s.metricsAt).count();
  if(seconds<1.0)return;
+ timespec boot{};clock_gettime(CLOCK_BOOTTIME,&boot);uint64_t uptime=uint64_t(boot.tv_sec)*1000+boot.tv_nsec/1000000;
  // These are incoming and generated PRESENT REQUEST rates. Neither rate is a
  // scanout measurement. Keep dimensions in the protocol so the HUD cannot
  // mislabel the current same-size filter as active super resolution.
- LOG("THOR_METRICS v=1 pid=%d swap=%llu eligible=%d in_w=%u in_h=%u out_w=%u out_h=%u source_fps=%.2f generated_fps=%.2f sources=%llu generated=%llu cuts=%llu holds=%llu flow_skips=%llu flags=%u blocking_ms=%.3f",
+ LOG("THOR_METRICS v=2 pid=%d swap=%llu eligible=%d in_w=%u in_h=%u out_w=%u out_h=%u source_fps=%.2f generated_fps=%.2f sources=%llu generated=%llu cuts=%llu holds=%llu flow_skips=%llu flags=%u blocking_ms=%.3f sr=%d sr_in_w=%u sr_in_h=%u sr_presents=%llu uptime_ms=%llu",
   getpid(),(unsigned long long)(uintptr_t)s.handle,s.supported&&!s.disabled,
   s.extent.width,s.extent.height,s.extent.width,s.extent.height,
   (s.sources-s.metricsSources)/seconds,(s.generated-s.metricsGenerated)/seconds,
   (unsigned long long)s.sources,(unsigned long long)s.generated,
-  (unsigned long long)s.cutSkipped,(unsigned long long)s.holdSkipped,(unsigned long long)s.flowSkipped,qualityFlags,blockingMs);
+  (unsigned long long)s.cutSkipped,(unsigned long long)s.holdSkipped,(unsigned long long)s.flowSkipped,qualityFlags,blockingMs,
+  s.spatialActive,s.spatialInput.width,s.spatialInput.height,(unsigned long long)s.spatialPresents,(unsigned long long)uptime);
  s.metricsAt=now;s.metricsSources=s.sources;s.metricsGenerated=s.generated;
 }
 EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(VkInstance,const char*);
@@ -75,7 +88,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL createDevice(VkPhysicalDevice physical,con
  LOG("DEVICE registered");return r;
 }
 static void releaseSwap(Device& d,Swap& s){auto& a=d.a;a.DeviceWaitIdle(d.handle);s.engine.reset();for(auto sem:s.ready)if(sem)a.DestroySemaphore(d.handle,sem,nullptr);if(s.acquired)a.DestroyFence(d.handle,s.acquired,nullptr);if(s.pool)a.DestroyCommandPool(d.handle,s.pool,nullptr);s.pool={};s.acquired={};s.ready.clear();}
-static VKAPI_ATTR void VKAPI_CALL destroyDevice(VkDevice device,const VkAllocationCallbacks* alloc){auto d=deviceFor(device);if(!d)return;{std::lock_guard<std::mutex> l(d->mutex);for(auto& entry:d->swaps)releaseSwap(*d,*entry.second);d->swaps.clear();}{std::lock_guard<std::mutex> l(globalMutex);for(auto i=queues.begin();i!=queues.end();)if(i->second.device==d)i=queues.erase(i);else ++i;devices.erase(key(device));}d->a.DestroyDevice(device,alloc);}
+static VKAPI_ATTR void VKAPI_CALL destroyDevice(VkDevice device,const VkAllocationCallbacks* alloc){auto d=deviceFor(device);if(!d)return;{std::lock_guard<std::mutex> l(d->mutex);d->a.DeviceWaitIdle(device);d->appCommands.clear();d->appPools.clear();for(auto& entry:d->swaps)releaseSwap(*d,*entry.second);d->swaps.clear();}{std::lock_guard<std::mutex> l(globalMutex);for(auto i=queues.begin();i!=queues.end();)if(i->second.device==d)i=queues.erase(i);else ++i;devices.erase(key(device));}d->a.DestroyDevice(device,alloc);}
 static void trackQueue(std::shared_ptr<Device> d,VkQueue queue,uint32_t family){if(!queue)return;std::lock_guard<std::mutex> l(globalMutex);queues[queue]={d,family};}
 static VKAPI_ATTR void VKAPI_CALL getQueue(VkDevice device,uint32_t family,uint32_t index,VkQueue* out){auto d=deviceFor(device);if(!d)return;d->a.GetDeviceQueue(device,family,index,out);trackQueue(d,*out,family);}
 static VKAPI_ATTR void VKAPI_CALL getQueue2(VkDevice device,const VkDeviceQueueInfo2* ci,VkQueue* out){auto d=deviceFor(device);if(!d)return;d->a.GetDeviceQueue2(device,ci,out);trackQueue(d,*out,ci->queueFamilyIndex);}
@@ -95,7 +108,9 @@ static VKAPI_ATTR VkResult VKAPI_CALL createSwapchain(VkDevice device,const VkSw
  if(r!=VK_SUCCESS&&ok){ok=false;r=d->a.CreateSwapchainKHR(device,ci,alloc,out);}
  if(r==VK_SUCCESS){auto s=std::make_shared<Swap>();s->handle=*out;s->extent=ci->imageExtent;s->format=ci->imageFormat;s->supported=ok;
  uint32_t n=0;d->a.GetSwapchainImagesKHR(device,*out,&n,nullptr);s->images.resize(n);d->a.GetSwapchainImagesKHR(device,*out,&n,s->images.data());
- std::lock_guard<std::mutex> l(d->mutex);d->swaps[*out]=s;LOG("SWAPCHAIN %ux%u images=%u eligible=%d active=%d",s->extent.width,s->extent.height,n,ok,enabled());}return r;
+ s->spatialFrames.resize(n);
+ s->spatialCompatible=ci->compositeAlpha==VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR||ci->compositeAlpha==VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
+ std::lock_guard<std::mutex> l(d->mutex);d->swaps[*out]=s;LOG("SWAPCHAIN %ux%u images=%u eligible=%d active=%d composite_alpha=%u",s->extent.width,s->extent.height,n,ok,enabled(),ci->compositeAlpha);}return r;
 }
 static VKAPI_ATTR void VKAPI_CALL destroySwapchain(VkDevice device,VkSwapchainKHR handle,const VkAllocationCallbacks* alloc){auto d=deviceFor(device);if(!d)return;{std::lock_guard<std::mutex> l(d->mutex);auto i=d->swaps.find(handle);if(i!=d->swaps.end()){releaseSwap(*d,*i->second);d->swaps.erase(i);}}d->a.DestroySwapchainKHR(device,handle,alloc);}
 static bool prepare(Device& d,Swap& s,uint32_t family){
@@ -108,14 +123,17 @@ static bool prepare(Device& d,Swap& s,uint32_t family){
   if(d.setLoaderData)requireVk(d.setLoaderData(d.handle,s.cmd),"SetLoaderData");
   VkFenceCreateInfo fi{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};requireVk(a.CreateFence(d.handle,&fi,nullptr,&s.acquired),"CreateAcquireFence");
   VkSemaphoreCreateInfo si{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};s.ready.resize(s.images.size());for(auto& sem:s.ready)requireVk(a.CreateSemaphore(d.handle,&si,nullptr,&sem),"CreatePresentSemaphore");
-  s.engine=std::make_unique<Engine>();s.engine->init(a,d.memory,s.extent,s.extent);LOG("PIPELINE ready original=%ux%u output=%ux%u; same-size SGSR filter, no render-resolution reduction",s.extent.width,s.extent.height,s.extent.width,s.extent.height);return true;
+  s.engine=std::make_unique<Engine>();s.engine->init(a,d.memory,s.extent,s.extent);LOG("PIPELINE ready FG_input=%ux%u output=%ux%u; real frame preserved, spatial SR reported separately",s.extent.width,s.extent.height,s.extent.width,s.extent.height);return true;
  }catch(const std::exception& e){LOG("DISABLED %s",e.what());s.disabled=true;releaseSwap(d,s);return false;}
 }
 static VKAPI_ATTR VkResult VKAPI_CALL present(VkQueue queue,const VkPresentInfoKHR* info){
  Queue q{};{std::lock_guard<std::mutex> l(globalMutex);auto it=queues.find(queue);if(it==queues.end())return VK_ERROR_INITIALIZATION_FAILED;q=it->second;}
  auto d=q.device;auto& a=d->a;std::lock_guard<std::mutex> lock(d->mutex);
- if(info->swapchainCount!=1||info->pNext||!enabled())return a.QueuePresentKHR(queue,info);
+ if(info->swapchainCount!=1||!enabled())return a.QueuePresentKHR(queue,info);
  auto found=d->swaps.find(info->pSwapchains[0]);if(found==d->swaps.end())return a.QueuePresentKHR(queue,info);auto& s=*found->second;++s.sources;
+ s.spatialActive=false;uint32_t presented=info->pImageIndices[0];
+ if(presented<s.spatialFrames.size()&&s.spatialFrames[presented].pending){s.spatialActive=true;s.spatialInput=s.spatialFrames[presented].input;s.spatialFrames[presented].pending=false;++s.spatialPresents;}
+ if(info->pNext){auto result=a.QueuePresentKHR(queue,info);reportMetrics(s,0,0);return result;}
  if(!s.supported||s.disabled||!prepare(*d,s,q.family)){auto result=a.QueuePresentKHR(queue,info);reportMetrics(s,0,0);return result;}
  uint32_t original=info->pImageIndices[0],extra=~0u;if(original>=s.images.size())return a.QueuePresentKHR(queue,info);
  auto start=std::chrono::steady_clock::now();
@@ -124,7 +142,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL present(VkQueue queue,const VkPresentInfoK
  auto idle=a.QueueWaitIdle(queue);if(idle!=VK_SUCCESS)return idle;
  a.ResetCommandPool(d->handle,s.pool,0);VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};bi.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
  auto br=a.BeginCommandBuffer(s.cmd,&bi);if(br!=VK_SUCCESS)return br;
- s.engine->record(s.cmd,s.images[original],VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+ s.engine->record(s.cmd,s.images[original],VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,false);
  auto er=a.EndCommandBuffer(s.cmd);if(er!=VK_SUCCESS)return er;
  std::vector<VkPipelineStageFlags> stages(info->waitSemaphoreCount,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
  VkSubmitInfo input{VK_STRUCTURE_TYPE_SUBMIT_INFO};input.waitSemaphoreCount=info->waitSemaphoreCount;input.pWaitSemaphores=info->pWaitSemaphores;input.pWaitDstStageMask=stages.data();input.commandBufferCount=1;input.pCommandBuffers=&s.cmd;
@@ -167,10 +185,15 @@ static PFN_vkVoidFunction intercept(const char* name){
  HOOK(GetInstanceProcAddr,vkGetInstanceProcAddr) HOOK(GetDeviceProcAddr,vkGetDeviceProcAddr)
  HOOK(CreateInstance,createInstance) HOOK(DestroyInstance,destroyInstance) HOOK(CreateDevice,createDevice) HOOK(DestroyDevice,destroyDevice)
  HOOK(GetDeviceQueue,getQueue) HOOK(GetDeviceQueue2,getQueue2) HOOK(CreateSwapchainKHR,createSwapchain) HOOK(DestroySwapchainKHR,destroySwapchain) HOOK(QueuePresentKHR,present)
+ HOOK(CreateCommandPool,srCreatePool) HOOK(DestroyCommandPool,srDestroyPool) HOOK(AllocateCommandBuffers,srAllocateCommands) HOOK(FreeCommandBuffers,srFreeCommands) HOOK(ResetCommandPool,srResetPool) HOOK(BeginCommandBuffer,srBegin)
+ HOOK(CmdBindPipeline,srBindPipeline) HOOK(CmdBindDescriptorSets,srBindDescriptors) HOOK(CmdPushConstants,srPushConstants) HOOK(CmdBlitImage,srBlit)
+ HOOK(CmdPushDescriptorSetKHR,srPushDescriptors) HOOK(CmdBindDescriptorBuffersEXT,srBindDescriptorBuffers)
+ HOOK(CmdBindShadersEXT,srBindShaders)
+ HOOK(QueueSubmit,srSubmit) HOOK(QueueSubmit2,srSubmit2) HOOK(QueueSubmit2KHR,srSubmit2KHR)
  HOOK(EnumerateInstanceLayerProperties,vkEnumerateInstanceLayerProperties) HOOK(EnumerateInstanceExtensionProperties,vkEnumerateInstanceExtensionProperties)
 #undef HOOK
  return nullptr;
 }
-EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(VkInstance i,const char* name){if(!name)return nullptr;auto fn=intercept(name);if(fn)return fn;auto data=instanceFor(i);return data?data->gipa(i,name):nullptr;}
-EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetDeviceProcAddr(VkDevice d,const char* name){if(!name)return nullptr;auto fn=intercept(name);if(fn)return fn;auto data=deviceFor(d);return data?data->gdpa(d,name):nullptr;}
+EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(VkInstance i,const char* name){if(!name)return nullptr;auto fn=intercept(name);if(!i)return fn;auto data=instanceFor(i);auto next=data?data->gipa(i,name):nullptr;return fn&&next?fn:next;}
+EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetDeviceProcAddr(VkDevice d,const char* name){if(!name)return nullptr;auto data=deviceFor(d);auto next=data?data->gdpa(d,name):nullptr;auto fn=intercept(name);return fn&&next?fn:next;}
 EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkNegotiateLoaderLayerInterfaceVersion(VkNegotiateLayerInterface* version){if(!version)return VK_ERROR_INITIALIZATION_FAILED;version->loaderLayerInterfaceVersion=std::min(version->loaderLayerInterfaceVersion,2u);version->pfnGetInstanceProcAddr=vkGetInstanceProcAddr;version->pfnGetDeviceProcAddr=vkGetDeviceProcAddr;return VK_SUCCESS;}

@@ -21,9 +21,13 @@ struct Engine {
  void storage(VkDescriptorSet set,uint32_t binding,const Image& im);
  void buffer(VkDescriptorSet set,uint32_t binding);
  void init(Api& api,const VkPhysicalDeviceMemoryProperties& mem,VkExtent2D in,VkExtent2D out);
+ // Spatial-only path for a real low-resolution application blit. No FG images
+ // or CPU readback are allocated by this path.
+ void initSpatial(Api& api,const VkPhysicalDeviceMemoryProperties& mem,VkExtent2D in,VkExtent2D out);
+ void recordSpatial(VkCommandBuffer cmd,VkImage source,VkImageLayout sourceLayout,const VkImageBlit& region);
  void barrier(VkCommandBuffer cmd,VkImage im,VkImageLayout from,VkImageLayout to,VkAccessFlags src,VkAccessFlags dst);
  void blit(VkCommandBuffer cmd,VkImage source,VkExtent2D sourceSize,VkImage destination,VkExtent2D destSize);
- void record(VkCommandBuffer cmd,VkImage source,VkImageLayout sourceLayout);
+ void record(VkCommandBuffer cmd,VkImage source,VkImageLayout sourceLayout,bool filter=true);
  // The caller must wait for this frame's GPU submission before reading.
  QualityStats readQuality()const;
  void release();

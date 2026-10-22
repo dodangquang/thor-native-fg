@@ -54,9 +54,36 @@ void Engine::init(Api& api,const VkPhysicalDeviceMemoryProperties& mem,VkExtent2
  upSets[2]=allocate(upscalePipe);sampled(upSets[2],0,mid);storage(upSets[2],1,upMid);
  qualitySet=allocate(qualityPipe);buffer(qualitySet,0);
 }
+void Engine::initSpatial(Api& api,const VkPhysicalDeviceMemoryProperties& mem,VkExtent2D in,VkExtent2D out){
+ a=&api;memory=mem;input=in;output=out;
+ history[0]=createImage(in,VK_FORMAT_R8G8B8A8_UNORM,VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+ upCurrent=createImage(out,VK_FORMAT_R8G8B8A8_UNORM,VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+ VkSamplerCreateInfo sc{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};sc.magFilter=sc.minFilter=VK_FILTER_LINEAR;sc.mipmapMode=VK_SAMPLER_MIPMAP_MODE_NEAREST;sc.addressModeU=sc.addressModeV=sc.addressModeW=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+ requireVk(a->CreateSampler(a->device,&sc,nullptr,&sampler),"SpatialSampler");
+ VkDescriptorPoolSize sizes[]={{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,1},{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,1}};
+ VkDescriptorPoolCreateInfo dp{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};dp.maxSets=1;dp.poolSizeCount=2;dp.pPoolSizes=sizes;requireVk(a->CreateDescriptorPool(a->device,&dp,nullptr,&descriptors),"SpatialDescriptors");
+ upscalePipe=createPipeline(upscale_spv,sizeof(upscale_spv),{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},8);
+ upSets[0]=allocate(upscalePipe);sampled(upSets[0],0,history[0]);storage(upSets[0],1,upCurrent);
+}
+void Engine::recordSpatial(VkCommandBuffer cmd,VkImage source,VkImageLayout sourceLayout,const VkImageBlit& region){
+ barrier(cmd,history[0].image,initialized?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL,initialized?VK_ACCESS_SHADER_READ_BIT:0,VK_ACCESS_TRANSFER_WRITE_BIT);
+ barrier(cmd,upCurrent.image,initialized?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL,initialized?VK_ACCESS_TRANSFER_READ_BIT:0,VK_ACCESS_SHADER_WRITE_BIT);
+ barrier(cmd,source,sourceLayout,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_MEMORY_WRITE_BIT|VK_ACCESS_TRANSFER_READ_BIT,VK_ACCESS_TRANSFER_READ_BIT);
+ VkImageBlit copy=region;copy.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};copy.dstOffsets[0]={0,0,0};copy.dstOffsets[1]={int32_t(input.width),int32_t(input.height),1};
+ a->CmdBlitImage(cmd,source,VK_IMAGE_LAYOUT_GENERAL,history[0].image,VK_IMAGE_LAYOUT_GENERAL,1,&copy,VK_FILTER_NEAREST);
+ barrier(cmd,source,VK_IMAGE_LAYOUT_GENERAL,sourceLayout,VK_ACCESS_TRANSFER_READ_BIT,VK_ACCESS_MEMORY_READ_BIT);
+ barrier(cmd,history[0].image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_TRANSFER_WRITE_BIT,VK_ACCESS_SHADER_READ_BIT);
+ int32_t size[]={int32_t(output.width),int32_t(output.height)};
+ a->CmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,upscalePipe.pipeline);
+ a->CmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,upscalePipe.layout,0,1,&upSets[0],0,nullptr);
+ a->CmdPushConstants(cmd,upscalePipe.layout,VK_SHADER_STAGE_COMPUTE_BIT,0,8,size);
+ a->CmdDispatch(cmd,(output.width+7)/8,(output.height+7)/8,1);
+ barrier(cmd,upCurrent.image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_SHADER_WRITE_BIT,VK_ACCESS_TRANSFER_READ_BIT);
+ initialized=true;
+}
 void Engine::barrier(VkCommandBuffer cmd,VkImage image,VkImageLayout from,VkImageLayout to,VkAccessFlags src,VkAccessFlags dst){VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};b.srcAccessMask=src;b.dstAccessMask=dst;b.oldLayout=from;b.newLayout=to;b.srcQueueFamilyIndex=b.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;b.image=image;b.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};a->CmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,0,nullptr,0,nullptr,1,&b);}
 void Engine::blit(VkCommandBuffer cmd,VkImage src,VkExtent2D s,VkImage dst,VkExtent2D d){VkImageBlit b{};b.srcSubresource=b.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};b.srcOffsets[1]={int32_t(s.width),int32_t(s.height),1};b.dstOffsets[1]={int32_t(d.width),int32_t(d.height),1};a->CmdBlitImage(cmd,src,VK_IMAGE_LAYOUT_GENERAL,dst,VK_IMAGE_LAYOUT_GENERAL,1,&b,VK_FILTER_NEAREST);}
-void Engine::record(VkCommandBuffer cmd,VkImage source,VkImageLayout sourceLayout){
+void Engine::record(VkCommandBuffer cmd,VkImage source,VkImageLayout sourceLayout,bool filter){
  if(!initialized){a->CmdFillBuffer(cmd,stats,0,sizeof(QualityStats),0);for(Image* im:{&history[0],&history[1],&flow,&mid,&upCurrent,&upMid}){barrier(cmd,im->image,VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL,0,VK_ACCESS_TRANSFER_WRITE_BIT);VkClearColorValue zero{};VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};a->CmdClearColorImage(cmd,im->image,VK_IMAGE_LAYOUT_GENERAL,&zero,1,&range);barrier(cmd,im->image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_TRANSFER_WRITE_BIT,VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT);}initialized=true;}
  barrier(cmd,source,sourceLayout,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_MEMORY_WRITE_BIT,VK_ACCESS_TRANSFER_READ_BIT);
  barrier(cmd,history[write].image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_SHADER_READ_BIT,VK_ACCESS_TRANSFER_WRITE_BIT);
@@ -72,8 +99,18 @@ void Engine::record(VkCommandBuffer cmd,VkImage source,VkImageLayout sourceLayou
  dispatch(flowPipe,flowSets[write],grid.width,grid.height,&push,sizeof(push));mb.srcAccessMask=VK_ACCESS_SHADER_WRITE_BIT;mb.dstAccessMask=VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;a->CmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,0,1,&mb,0,nullptr,0,nullptr);
  dispatch(qualityPipe,qualitySet,1,1,&push,sizeof(push));a->CmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,0,1,&mb,0,nullptr,0,nullptr);
  dispatch(interpolatePipe,interpolateSets[write],input.width,input.height,&push,sizeof(push));a->CmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,0,1,&mb,0,nullptr,0,nullptr);
- int32_t outSize[]={int32_t(output.width),int32_t(output.height)};dispatch(upscalePipe,upSets[write],output.width,output.height,outSize,8);dispatch(upscalePipe,upSets[2],output.width,output.height,outSize,8);
- barrier(cmd,upCurrent.image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_SHADER_WRITE_BIT,VK_ACCESS_TRANSFER_READ_BIT);barrier(cmd,upMid.image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_SHADER_WRITE_BIT,VK_ACCESS_TRANSFER_READ_BIT);
+ if(filter){
+  int32_t outSize[]={int32_t(output.width),int32_t(output.height)};dispatch(upscalePipe,upSets[write],output.width,output.height,outSize,8);dispatch(upscalePipe,upSets[2],output.width,output.height,outSize,8);
+  barrier(cmd,upCurrent.image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_SHADER_WRITE_BIT,VK_ACCESS_TRANSFER_READ_BIT);barrier(cmd,upMid.image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_SHADER_WRITE_BIT,VK_ACCESS_TRANSFER_READ_BIT);
+ }else{
+  // Present-time FG runs at display resolution. Preserve the application's real
+  // frame exactly and avoid filtering a frame that was already spatially upscaled.
+  barrier(cmd,history[write].image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_TRANSFER_WRITE_BIT|VK_ACCESS_SHADER_READ_BIT,VK_ACCESS_TRANSFER_READ_BIT);
+  barrier(cmd,mid.image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_SHADER_WRITE_BIT,VK_ACCESS_TRANSFER_READ_BIT);
+  for(Image* image:{&upCurrent,&upMid})barrier(cmd,image->image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_TRANSFER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT,VK_ACCESS_TRANSFER_WRITE_BIT);
+  blit(cmd,history[write].image,input,upCurrent.image,output);blit(cmd,mid.image,input,upMid.image,output);
+  for(Image* image:{&upCurrent,&upMid})barrier(cmd,image->image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_TRANSFER_WRITE_BIT,VK_ACCESS_TRANSFER_READ_BIT);
+ }
  barrier(cmd,source,VK_IMAGE_LAYOUT_GENERAL,sourceLayout,VK_ACCESS_TRANSFER_READ_BIT,VK_ACCESS_MEMORY_READ_BIT);
  mb.srcAccessMask=VK_ACCESS_SHADER_WRITE_BIT;mb.dstAccessMask=VK_ACCESS_HOST_READ_BIT;a->CmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_PIPELINE_STAGE_HOST_BIT,0,1,&mb,0,nullptr,0,nullptr);
  hasHistory=true;write=1-write;

@@ -1,4 +1,4 @@
-THOR NATIVE FG 0.2 — BẢN THỬ NGHIỆM ĐỘC LẬP
+THOR NATIVE FG 0.3 — BẢN THỬ NGHIỆM ĐỘC LẬP
 
 Mở ứng dụng Thor Native FG trên Thor.
 1. Chạy cảnh mẫu để so sánh Bilinear, GSR1 và GSR1+FG.
@@ -11,27 +11,37 @@ Mở ứng dụng Thor Native FG trên Thor.
 6. Bấm Tắt layer để khôi phục setting. Khởi động lại giả lập để bỏ layer khỏi
    tiến trình đã nạp. Không dùng song song với FG khác.
 
+UPSCALE GSR1
+Đánh dấu 'Upscale GSR1 khi game render độ phân giải thấp'. Đặt độ phân giải
+thấp trong game/giả lập, chẳng hạn960x540 cho màn hình1920x1080. App không tự
+giảm độ phân giải render. Layer thay bước blit phóng ảnh cuối phù hợp bằng GSR1.
+Chỉ hỗ trợ thử nghiệm blit màu toàn màn hình trên Vulkan/queue có compute;
+renderer dùng draw pass, blit2, khung không phù hợp hoặc ảnh đã cùng cỡ có thể
+không được upscale. Xem 'Đọc trạng thái' để biết kích thước và SR thực tế.
+Đây là spatial SR, chưa phải temporal DLSS/SGSR2. Đường này đã kiểm bằng
+nguồn Vulkan riêng; chưa xác nhận gameplay DroidDeck với render thấp.
+
 Ô FPS NHỎ
 Bấm 'Hiện ô FPS + trạng thái FG/SR', cấp quyền hiển thị trên ứng dụng khác.
 Khi đã cấp quyền, nút bật FG tự mở ô. Kéo để di chuyển, chạm để xem ý nghĩa
 số đo. Ẩn bằng nút trong app hoặc thông báo Thor.
-- Nguồn FPS: tốc độ ứng dụng gửi khung vào layer.
-- FG ON (+n gửi/s): engine đã gửi yêu cầu present của ảnh nội suy. Đây chưa
-  phải số khung đã đo trên panel. Không cộng rồi gọi là FPS thực màn hình.
+- Chỉ một dòng theo yêu cầu: 'Gốc30 | FG≈60'. Gốc là tốc độ gửi từ ứng dụng;
+  FG≈ là nguồn cộng yêu cầu present của ảnh nội suy, chưa phải FPS panel đã đo.
 - Thiếu dữ liệu mới của đúng PID: chuyển trạng thái chờ, không giữ FPS cũ.
-- SR: chưa upscale: đúng với layer0.2 vì ảnh vào/ra vẫn cùng kích thước.
-  Chưa có nút bật DLSS/temporal SR hoàn chỉnh cho game trong bản này.
+- Trạng thái SR để trong app. SR chỉ báoON khi pass dùng ảnh render thấp được
+  submit cho image trình bày, không chỉ vì đã đánh dấu bật tính năng.
 
-Bản0.2 loại bỏ yêu cầu frame nội suy khi cut/flow kém, chờ2cặp sau cut rồi
-phục hồi.21kiểm thử GPU và13kiểm thử giao thức HUD đã qua trên bản phát triển.
-Module bootstrap không đổi; cập nhật APK0.2 không cần cài lại module/reboot.
+Bản0.3 giữ cơ chế bỏ frame nội suy khi cut/flow kém.27kiểm thử GPU và18kiểm
+thử giao thức HUD qua. Đọc ảnh GPU của pass chèn ngoài khớp GSR tham chiếu
+trong3frame, giữ đúng trạng thái compute của ứng dụng, không thấy lỗi validation.
+Module bootstrap không đổi; cập nhật APK0.3 không cần cài lại module/reboot.
 
 Sau reboot, target và cờ active tự xóa. Chọn lại giả lập để bật thử nghiệm.
 
 GIỚI HẠN
 Không phải DLSS, không cam kết120FPS/không bóng ma/độ trễ1–3ms. Chưa hỗ trợ
-mọi giả lập. Layer hiện chỉ lọc GSR1 cùng kích thước ảnh game, chưa tự hạ độ
-phân giải render. Cảnh mẫu có upscale thực640x360 lên kích thước Surface.
+mọi giả lập. App chưa tự hạ độ phân giải render. Cảnh mẫu có upscale thực
+640x360 lên kích thước Surface; không dùng cảnh mẫu thay kiểm chứng gameplay.
 Frame gen dùng RGB block motion trên GPU, không có depth/motion của engine.
 Đồng bộ bảo thủ có thể làm chậm game. Chưa có NPU/FSR3/GSR2/3x.
 
