@@ -18,12 +18,13 @@ public class FpsOverlayService extends Service {
     private WindowManager windows;private WindowManager.LayoutParams position;private TextView hud;
     private volatile boolean stopped=false,active=false;private volatile String target="",error="";
     private volatile boolean automatic=false;
+    private volatile long configAt=0;private boolean attached=false;
     private volatile int targetPid=0;private volatile RuntimeMetrics metrics;
     private volatile java.lang.Process logProcess;private Thread logThread;
 
     @Override public void onCreate(){
         super.onCreate();
-        if(!Settings.canDrawOverlays(this)){stopSelf();return;}
+        if(!getPreferences().getBoolean("hud_visible",false)||!Settings.canDrawOverlays(this)){stopSelf();return;}
         NotificationManager manager=getSystemService(NotificationManager.class);
         manager.createNotificationChannel(new NotificationChannel(CHANNEL,"Thor FPS và FG/SR",NotificationManager.IMPORTANCE_LOW));
         PendingIntent open=PendingIntent.getActivity(this,0,new Intent(this,MainActivity.class),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
@@ -45,14 +46,17 @@ public class FpsOverlayService extends Service {
                 if(event.getAction()==MotionEvent.ACTION_UP){if(dragged)getPreferences().edit().putInt("hud_x",position.x).putInt("hud_y",position.y).apply();else{view.performClick();Toast.makeText(FpsOverlayService.this,"Gốc = khung ứng dụng gửi vào engine. FG dùng timestamp trình bày Vulkan khi có; dấu ≈ là ước tính từ yêu cầu gửi khung. Xem trạng thái SR trong app.",Toast.LENGTH_LONG).show();}return true;}
                 return true;
             }});
-        try{windows.addView(hud,position);}catch(RuntimeException failure){stopSelf();return;}
         getPreferences().edit().putBoolean("hud_visible",true).apply();
         logThread=new Thread(()->readLogs(),"thor-runtime-hud");logThread.start();main.post(refresh);
     }
     private SharedPreferences getPreferences(){return getSharedPreferences("thor",MODE_PRIVATE);}
     private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
     private void clampPosition(){android.util.DisplayMetrics display=getResources().getDisplayMetrics();position.x=Math.max(0,Math.min(position.x,Math.max(0,display.widthPixels-hud.getWidth())));position.y=Math.max(0,Math.min(position.y,Math.max(0,display.heightPixels-hud.getHeight())));}
-    @Override public void onConfigurationChanged(android.content.res.Configuration config){super.onConfigurationChanged(config);if(hud!=null){clampPosition();windows.updateViewLayout(hud,position);}}
+    @Override public void onConfigurationChanged(android.content.res.Configuration config){super.onConfigurationChanged(config);if(hud!=null&&attached){clampPosition();windows.updateViewLayout(hud,position);}}
+    private void showWindow(boolean show){
+        if(show&&!attached){try{clampPosition();windows.addView(hud,position);attached=true;}catch(RuntimeException failure){stopSelf();}}
+        else if(!show&&attached){try{windows.removeView(hud);}catch(RuntimeException ignored){}attached=false;}
+    }
     private void readConfig(String line){
         try{
             String selected="",pidText="0",on="",auto="";
@@ -66,7 +70,7 @@ public class FpsOverlayService extends Service {
             int pid=pidText.matches("[0-9]+")?Integer.parseInt(pidText):0;
             if("1".equals(auto)&&pid>0&&!selected.isEmpty()&&!selected.equals(getPreferences().getString("auto_last_package","")))getPreferences().edit().putString("auto_last_package",selected).apply();
             if(!selected.equals(target)||pid!=targetPid)metrics=null;
-            target=selected;targetPid=pid;active="1".equals(on);automatic="1".equals(auto);error="";
+            target=selected;targetPid=pid;active="1".equals(on);automatic="1".equals(auto);error="";configAt=SystemClock.elapsedRealtime();
         }catch(RuntimeException invalid){/* Ignore incomplete monitor output. */}
     }
     private void readLogs(){
@@ -94,7 +98,10 @@ public class FpsOverlayService extends Service {
     private final Runnable refresh=new Runnable(){public void run(){
         if(stopped||hud==null)return;
         RuntimeMetrics value=metrics;
-        hud.setVisibility(automatic&&(!active||targetPid==0)?View.GONE:View.VISIBLE);
+        // Keep no overlay window at boot/on ordinary apps. Attaching a GONE
+        // window still enters WindowManager/accessibility/display bookkeeping.
+        long now=SystemClock.elapsedRealtime();
+        showWindow(configAt>0&&now-configAt<5000&&(!automatic||(active&&targetPid>0)));
         if(!error.isEmpty())hud.setText("Gốc — | FG —");
         else if(!active)hud.setText("Gốc — | FG TẮT");
         else if(targetPid==0)hud.setText("Gốc — | FG —");
@@ -102,7 +109,7 @@ public class FpsOverlayService extends Service {
         else hud.setText(value.hud());
         main.postDelayed(this,500);
     }};
-    @Override public int onStartCommand(Intent intent,int flags,int id){if(intent!=null&&"HIDE".equals(intent.getAction()))stopSelf();return START_NOT_STICKY;}
+    @Override public int onStartCommand(Intent intent,int flags,int id){if(intent!=null&&"HIDE".equals(intent.getAction())){getPreferences().edit().putBoolean("hud_visible",false).apply();stopSelf();return START_NOT_STICKY;}if(hud==null){stopSelf();return START_NOT_STICKY;}return START_STICKY;}
     @Override public IBinder onBind(Intent intent){return null;}
-    @Override public void onDestroy(){stopped=true;main.removeCallbacksAndMessages(null);java.lang.Process process=logProcess;if(process!=null){try{process.getOutputStream().write("STOP\n".getBytes("UTF-8"));process.getOutputStream().flush();process.getOutputStream().close();}catch(IOException ignored){process.destroy();}}if(hud!=null&&hud.isAttachedToWindow())windows.removeView(hud);hud=null;getPreferences().edit().putBoolean("hud_visible",false).apply();stopForeground(STOP_FOREGROUND_REMOVE);super.onDestroy();}
+    @Override public void onDestroy(){stopped=true;main.removeCallbacksAndMessages(null);java.lang.Process process=logProcess;if(process!=null){try{process.getOutputStream().write("STOP\n".getBytes("UTF-8"));process.getOutputStream().flush();process.getOutputStream().close();}catch(IOException ignored){process.destroy();}}if(hud!=null&&attached)showWindow(false);hud=null;stopForeground(STOP_FOREGROUND_REMOVE);super.onDestroy();}
 }

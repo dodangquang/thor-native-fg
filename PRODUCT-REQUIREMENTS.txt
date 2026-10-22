@@ -51,10 +51,18 @@ Current verified baseline and gaps:
   and quality are still unverified, so the game requirement remains outstanding.
 - Three per-pair queue-idle waits have been replaced with submission fences;
   GPU timestamps now separate input/quality/interpolation and output-copy cost.
-  CPU quality readback still waits roughly7–8ms in the synthetic display-sized
-  fixture. Opportunistic extra acquisition and synchronous readback remain;
-  async scheduling/proxy presentation and display-budget handling are required.
+  Version0.6 moves that quality readback/presentation onto a single-job worker
+  using a private queue or synchronized shared queue. CPU present stalls fell
+  in actual DroidDeck tests, but GPU work, opportunistic spare acquisition and
+  display-budget/pacing limits remain. This is not a complete proxy swapchain.
 - No gameplay quality, end-to-end latency or sustained-benefit proof exists.
+- Version0.6 compared the same Castlevania title menu: two async passes had
+  median source56.59/55.51 and displayed101.78/94.69FPS, versus fence52.64/96.73
+  and SR-only58.42/58.42. All used independent SR1280x720->1080p. Async source
+  present CPU was about0.1ms versus11.8ms; GPU input remained about7ms. Output
+  varies and the second pass does not beat fence output: no universal FPS,
+  input-latency or quality improvement is established. A separate intro run
+  displayed45.72FPS from25.11 source; traversal/combat still require evidence.
 - Version0.5 also ran actual Castlevania intro/cutscene/dialogue through the
   DroidDeck compositor with its own effects/upscaler disabled. All274 retained
   valid telemetry windows reported Thor spatial SR1280x720->1920x1080; median

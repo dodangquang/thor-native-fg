@@ -31,7 +31,7 @@ public class MainActivity extends Activity {
         LinearLayout page=new LinearLayout(this);page.setOrientation(1);page.setPadding(36,28,36,24);page.setBackgroundColor(Color.rgb(12,20,33));
         ScrollView scroll=new ScrollView(this);scroll.addView(page);setContentView(scroll);
         TextView title=text("THOR NATIVE FG",26);title.setTextColor(Color.rgb(87,222,212));page.addView(title);
-        page.addView(text("Frame gen độc lập + GSR 1 • Bản thử nghiệm 0.5",16));
+        page.addView(text("Frame gen độc lập + GSR 1 • Bản thử nghiệm 0.6",16));
         page.addView(text("Không phải NVIDIA DLSS. Chưa xác nhận tương thích mọi giả lập hay tăng FPS thực tế. Layer hỗ trợ thử nghiệm Vulkan FIFO, SDR RGBA/BGRA8; OpenGL ES và driver nạp riêng có thể không đi qua layer.",15));
         page.addView(text("Engine FG thuộc Thor Native FG. Khi thử, tắt FG tích hợp trong giả lập để tránh nội suy hai lần. GSR 1 xử lý ảnh render thấp khi đường hiển thị Vulkan phù hợp; hãy đặt độ phân giải thấp trong game/giả lập. Chỉ báo ON khi có pass upscale được gửi thật.",15));
         button(page,"Chạy cảnh mẫu Vulkan · GSR 1 + FG 2x",()->startActivity(new Intent(this,DemoActivity.class)));
@@ -45,7 +45,7 @@ public class MainActivity extends Activity {
         packages=new Spinner(this);loadPackages();page.addView(packages);
         button(page,"Bật FG của Thor và mở ứng dụng",()->enableSelected());
         button(page,"Hiện FPS gốc / FG",()->showOverlay());
-        button(page,"Ẩn ô FPS (giữ cấu hình FG)",()->stopService(new Intent(this,FpsOverlayService.class)));
+        button(page,"Ẩn ô FPS (giữ cấu hình FG)",()->{getSharedPreferences("thor",MODE_PRIVATE).edit().putBoolean("hud_visible",false).apply();stopService(new Intent(this,FpsOverlayService.class));});
         button(page,"Tắt layer · khôi phục cấu hình trước",()->runJob(()->{restore();return "Đã khôi phục cấu hình. Đóng/mở lại giả lập để gỡ layer khỏi tiến trình.";}));
         button(page,"Đọc trạng thái và log layer",()->runJob(()->readStatus()));
         status=text("Chọn ứng dụng → bật FG của Thor → cấp root → lưu game, thoát hẳn rồi mở lại giả lập và chọn Vulkan. Cấu hình thành công chưa chứng minh FG/SR đã chạy.\n\nÔ FPS chỉ hiện ‘Gốc’ và ‘FG’. Gốc là tốc độ ứng dụng gửi khung; FG là FPS sau xử lý, dùng timestamp trình bày Vulkan khi có. Dấu ≈ cho biết số ước tính từ yêu cầu gửi khung. Thiếu dữ liệu mới thì ô chuyển sang chờ. Kéo để di chuyển; chạm để xem ý nghĩa số đo.\n\nBản 0.3 thử GSR 1 ngay ở bước phóng ảnh Vulkan cuối: ví dụ game render 960×540, xuất 1920×1080. App không tự đổi độ phân giải game. Đường hiển thị khác hoặc ảnh đã bằng cỡ màn hình sẽ báo ‘chưa upscale’. Đây là spatial SR, chưa phải DLSS/temporal SR. Khi đổi SR hoặc tắt layer, mở lại giả lập để bỏ các lệnh GPU đã ghi trước đó.\n\nFG có loại bỏ cặp cut/chuyển động kém tin cậy. NPU, GSR 2, FSR 3 và hệ số 3x chưa được tích hợp.",14);page.addView(status);

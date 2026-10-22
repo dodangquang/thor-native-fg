@@ -111,14 +111,14 @@ static void srSubmitted(Device& d,VkCommandBuffer cmd){
 }
 static VKAPI_ATTR VkResult VKAPI_CALL srSubmit(VkQueue queue,uint32_t count,const VkSubmitInfo* submits,VkFence fence){
  auto d=srQueueDevice(queue);if(!d)return VK_ERROR_INITIALIZATION_FAILED;
- auto result=d->a.QueueSubmit(queue,count,submits,fence);
+ auto result=layerSubmit(*d,queue,count,submits,fence);
  if(result==VK_SUCCESS){std::lock_guard<std::mutex> lock(d->mutex);for(uint32_t n=0;n<count;n++)for(uint32_t i=0;i<submits[n].commandBufferCount;i++)srSubmitted(*d,submits[n].pCommandBuffers[i]);}
  return result;
 }
 static VkResult srSubmit2Common(VkQueue queue,uint32_t count,const VkSubmitInfo2* submits,VkFence fence,const char* name){
  auto d=srQueueDevice(queue);if(!d)return VK_ERROR_INITIALIZATION_FAILED;
  auto fn=(PFN_vkQueueSubmit2)d->gdpa(d->handle,name);if(!fn)return VK_ERROR_EXTENSION_NOT_PRESENT;
- auto result=fn(queue,count,submits,fence);
+ VkResult result;{std::unique_lock<std::mutex> lock(d->privateQueueMutex,std::defer_lock);if(d->sharedPresenter||queue==d->privateQueue)lock.lock();result=fn(queue,count,submits,fence);}
  if(result==VK_SUCCESS){std::lock_guard<std::mutex> lock(d->mutex);for(uint32_t n=0;n<count;n++)for(uint32_t i=0;i<submits[n].commandBufferInfoCount;i++)srSubmitted(*d,submits[n].pCommandBufferInfos[i].commandBuffer);}
  return result;
 }

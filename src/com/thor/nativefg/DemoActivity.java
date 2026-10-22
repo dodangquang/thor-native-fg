@@ -15,7 +15,8 @@ public class DemoActivity extends Activity implements SurfaceHolder.Callback {
  TextView text=new TextView(this);text.setText("Cảnh tổng hợp 640×360 • Mục tiêu 30 → 60 yêu cầu present/s, chưa phải FPS hiển thị đã đo • Đổi cảnh mỗi 5 giây");root.addView(text);SurfaceView surface=new SurfaceView(this);surface.getHolder().addCallback(this);root.addView(surface,new LinearLayout.LayoutParams(-1,0,1));setContentView(root);}
  public void surfaceCreated(SurfaceHolder holder){activeHolder=holder;startNative(holder.getSurface());active=true;}
  public void surfaceChanged(SurfaceHolder holder,int format,int w,int h){}
- public void surfaceDestroyed(SurfaceHolder holder){stopNative();active=false;activeHolder=null;}
- @Override public void onPause(){super.onPause();stopNative();active=false;}
+ private void stopIfActive(){if(active){active=false;stopNative();}}
+ public void surfaceDestroyed(SurfaceHolder holder){if(holder==activeHolder){stopIfActive();activeHolder=null;}}
+ @Override public void onPause(){super.onPause();stopIfActive();}
  @Override public void onResume(){super.onResume();if(!active&&activeHolder!=null&&activeHolder.getSurface().isValid()){startNative(activeHolder.getSurface());active=true;}}
 }

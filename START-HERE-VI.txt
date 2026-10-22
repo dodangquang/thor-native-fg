@@ -1,6 +1,12 @@
-THOR NATIVE FG 0.5 — BẢN THỬ NGHIỆM ĐỘC LẬP
+THOR NATIVE FG 0.6 — BẢN THỬ NGHIỆM ĐỘC LẬP
 
-Bản0.5 sửa lỗi Steam kẹt sau khi cập nhật APK Thor trong lúc DroidDeck đã mở.
+Bản0.6 đưa FG sang worker riêng để luồng trình bày của giả lập có thể chạy
+tiếp. App tự chọn queue phù hợp; custom Turnip của DroidDeck dùng đường queue
+chung có đồng bộ. Không cần bật thêm nút. Nguồn gần119FPS được giữ nguyên.
+Đã chạy SR1280x720→1080p và FG trong menu/intro Castlevania; FPS trình bày vẫn
+dao động, chưa đạt chất lượng/tương thích đầy đủ như DLSS. Xem STATUS-VI.txt.
+
+Bản0.5 đã sửa lỗi Steam kẹt sau khi cập nhật APK Thor trong lúc DroidDeck đã mở.
 Engine được đóng gói trong runtime cùng chữ ký, kiểm SHA-256, cài tự động khi
 bật FG. Runtime không có icon/dịch vụ; mỗi binary dùng package riêng và được
 giữ lại để các tiến trình đã mở không mất đường dẫn thư viện. Cập nhật controller
@@ -58,6 +64,10 @@ chất lượng/lợi ích FPS trong gameplay di chuyển/chiến đấu.
 Bấm 'Hiện FPS gốc / FG', cấp quyền hiển thị trên ứng dụng khác.
 Khi đã cấp quyền, nút bật FG tự mở ô. Kéo để di chuyển, chạm để xem ý nghĩa
 số đo. Ẩn bằng nút trong app hoặc thông báo Thor.
+Trong tự động, cửa sổ chỉ được tạo khi game được chọn đang ở trước; về launcher
+thì được gỡ. Yêu cầu hiện/ẩn được giữ riêng khi hệ thống dừng dịch vụ. Nếu quay
+lại DroidDeck thấy 'Steam is paused', bấm Resume để compositor tiếp tục gửi
+khung; trong lúc pause, ô FPS chờ dữ liệu mới.
 - Chỉ một dòng theo yêu cầu: 'Gốc 30 | FG 60'. Gốc là tốc độ ứng dụng gửi
   khung; FG là tổng FPS sau xử lý, gồm khung gốc và khung nội suy.
 - Nếu Vulkan cung cấp timestamp trình bày hợp lệ, FG dùng số đo đó. Dấu ≈

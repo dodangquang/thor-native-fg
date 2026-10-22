@@ -1,9 +1,102 @@
-THOR NATIVE FG — NHẬT KÝ KIỂM CHỨNG (CẬP NHẬT0.5)
+THOR NATIVE FG — NHẬT KÝ KIỂM CHỨNG (CẬP NHẬT0.6)
 
-HIỆN TẠI: APK0.5 và bootstrap0.3 đã cài, reboot thành công, tự động bật cho
-16game/giả lập đã chọn. Các mục0.1/0.2/0.3/0.4 phía dưới ghi lại những phiên trước;
-không dùng trạng thái 'tắt' trong các mục lịch sử làm trạng thái máy hiện tại.
-Mục tiêu DLSS-like đầy đủ vẫn chưa đạt. Xem cập nhật0.5 dưới đây.
+HIỆN TẠI: APK0.6 và bootstrap0.3 đã cài. Engine vẫn thử nghiệm; mục tiêu
+DLSS-like đầy đủ chưa đạt. Các mục0.1–0.5 phía dưới là lịch sử, không phải
+trạng thái máy hiện tại. Xem phần0.6 và PRODUCT-REQUIREMENTS.txt.
+
+CẬP NHẬT0.6 — FG CHẠY NỀN VÀ KIỂM THỬ DROIDDECK
+- Chuyển quality wait/present sang một worker cho mỗi swapchain, tối đa một
+  frame đang xử lý. Chỉ giữ handle/scalar thuộc layer; không giữ con trỏ mảng,
+  pNext hay pResults của ứng dụng sau khi present trả về. Lỗi native xuất hiện
+  sau đó được chuyển về lần acquire/present tiếp theo.
+- Mặc định tự chọn: dùng queue graphics/compute còn trống nếu có; nếu không,
+  dùng queue chung với khóa cho submit/submit2/bind-sparse/present/debug-label
+  và wait-idle. Các extension queue NV/Intel chưa được bọc sẽ giữ đường đồng
+  bộ. Không thay queue bảo vệ. Driver DroidDeck đang dùng không còn queue trống,
+  nên private-queue prototype ban đầu không cải thiện được nó; đường shared
+  đã chạy thật trên custom Turnip của DroidDeck.
+- Queue/device idle, resize/oldSwapchain và destroy đợi worker xong. Acquire
+  và present khóa WSI của cùng swapchain. Acquire đợi bằng lượt không chặn,
+  nhả khóa giữa các lượt để presenter có thể trả image; giữ timeout và lỗi.
+- Bộ lọc validation ban đầu đã bỏ sót UNASSIGNED-Threading. Đã tìm và sửa lỗi
+  acquire/present đồng thời. Những log *-pre-wsi-fix.txt và *-invalid-*.txt là
+  bằng chứng lỗi/bộ thử chưa hợp lệ, không được tính là validation pass.
+- Cũng sửa callback SurfaceDestroyed của activity mẫu đã pause: callback cũ
+  từng dừng nhầm renderer mới sau clear-task. Kiểm thử nay yêu cầu renderer
+  tiếp tục có ít nhất3cửa sổ generated/display-valid sau recreate và off/on;
+  không chỉ dựa vào6ảnh SR đầu tiên. Bản cuối qua6/6SR readback,6/6compute
+  state và3cửa sổ hồi phục, không có validation/threading error trong log.
+  research/async-final-qa-lifecycle.txt (PID32685).
+- 8/8worker,8/8queue-plan,7/7WSI-guard checks chạy qua trên Thor. Shader
+  SPIR-V validation, native/Java build và ký APK qua. Không sửa flow/SR shader
+  trong bản này; các fixture trước không trở thành chứng minh chất lượng game.
+- Ma trận cảnh mẫu có Vulkan + sync validation: private và shared đều khoảng
+  30→60,60→118FPS timestamp trình bày; nguồn119FPS giữ119, generated=0.
+  Yêu cầu hết queue: chế độ auto chuyển shared; ép private thì giữ fence.
+  SR-only và FG/SR-off đều không tạo frame. Các log hợp lệ không có validation
+  error. Trung vị lời gọi present nguồn30: fence11,292ms, private2,034ms;
+  đây là thời gian CPU của API, không phải input latency. Xem
+  research/async-presenter-summary.json.
+- Castlevania qua DroidDeck PID24413, cùng menu/renderer, hiệu ứng và FG của
+  DroidDeck tắt/plain linear: Thor SR1280x720→1920x1080 trong toàn bộ các cửa
+  sổ đo. Mỗi trường hợp22s, bỏ3s đầu,19cửa sổ hợp lệ:
+    shared A: nguồn56,59 / trình bày101,78 / CPU present0,088ms;
+    fence:    nguồn52,64 / trình bày96,73  / CPU present11,800ms;
+    SR-only:  nguồn58,42 / trình bày58,42  / generated0;
+    shared B: nguồn55,51 / trình bày94,69  / CPU present0,101ms.
+  GPU input FG khoảng6,96–6,98ms. Các số là trung vị, không cộng các trung vị
+  thành tổng. Có dao động/pacing: shared B không hơn fence về FPS trình bày;
+  chưa chứng minh tăng FPS ổn định, latency đầu vào hay hiệu quả nhiệt.
+  research/droid-async-case-summary.json và từng log/metadata theo trường hợp.
+- Tiếp tục game qua nút tay cầm Odin vào intro:22cửa sổ hợp lệ trong phép đo
+  25s, nguồn25,11FPS, trình bày45,72FPS; SR vẫn1280x720→1080p. CPU present
+  trung vị0,100ms, GPU input6,498ms. Đây là loading/intro, chưa phải benchmark
+  đi lại/chiến đấu hoặc kiểm định HUD/occlusion/cut nhanh đạt chất lượng DLSS.
+- Validation thực tế DroidDeck còn3nhóm lỗi: compositeAlpha, semaphore tái
+  sử dụng và queue-family-foreign. Đối chứng chỉ nạp Khronos validation, không
+  có Thor layer (PID17988), tái hiện cả3nhóm. Không gọi phiên DroidDeck này là
+  validation-clean. research/droid-validation-only-control.txt so với
+  async-shared-droid-validation.txt. Chưa sửa binary của DroidDeck.
+- Cấu hình hiệu ứng gốc đã khôi phục đúng SHA-256. Hai file save trước/sau/
+  khôi phục cùng nội dung, UID/GID10201 và mode0600; xác nhận trong
+  research/async-save-verification.json. Không ghi đè tiến độ mới của người
+  dùng: bản sao trước lấy ngay trước phiên test này. Đã gỡ hai package QA.
+- Reboot đầu gặp SurfaceFlinger EGLConfig abort sớm và sau đó system_server
+  watchdog ở accessibility/display; Android tự phục hồi. Không gọi lượt này
+  là boot pass hoặc quy chắc nguyên nhân cho FG/ứng dụng khác. Log đã lưu
+  async-reboot-crash.txt và async-reboot-system.txt. Sau hồi phục, kiểm tra
+  system_server/SurfaceFlinger không map thư viện Thor,16rule sản phẩm còn
+  nguyên và DroidDeck tự nạp đường shared khi người kiểm thử mở Steam.
+- HUD nay không gắn một cửa sổ GONE sớm lúc boot: chỉ addView sau khi có
+  cấu hình foreground mới, game đang được chọn, và người dùng đã bật HUD.
+  Về launcher thì removeView. Giữ yêu cầu hiện/ẩn riêng với vòng đời service,
+  START_STICKY và BOOT_COMPLETED giúp hồi phục. Thử kill riêng process HUD:
+  PID23542→25014 tự trở lại, hud_visible=true, DroidDeck vẫn PID19522.
+  research/async-hud-process-recovery.txt. Chưa suy thành đã sửa căn nguyên
+  watchdog của firmware. Xem phần boot kiểm chứng cuối nếu có bên dưới.
+- Boot kiểm chứng cuối: system_server PID2202 giữ nguyên tới hơn8phút, không
+  thấy WATCHDOG KILLING SYSTEM PROCESS trong log system đã thu. SurfaceFlinger
+  vẫn có một EGLConfig abort rất sớm rồi hồi phục; chưa chứng minh đã sửa lỗi
+  khởi tạo EGL của firmware. Auto=1, SR=1, bootstrap=3, presenter/FG override
+  trống, GPU debug layers=0;16rule và runtime D650... khớp. Service tự khôi
+  phục và không có cửa sổ Thor tại launcher. DroidDeck PID11529 tự nạp engine,
+  ASYNC_SHARED=1, Steam vào thư viện; có timestamp display-valid và generated.
+  Cấu hình hiệu ứng gốc khiến Thor báo sr=0 trong phiên hậu boot này, đúng với
+  ảnh đã upscale; không dùng phiên này để thay bằng chứng SR của game ở trên.
+  research/async-final-boot-home.txt, async-final-boot-droid-complete.txt,
+  async-final-boot-system.txt và ảnh async-final-library.png.
+- Thử HIDE bằng UIDroot: hud_visible=false, service dừng; gọi startup service
+  như lúc boot vẫn không khởi tạo HUD. Bật lại bằng controller rồi về launcher:
+  yêu cầu true được giữ và không có overlay ở Home. Log
+  async-hud-hidden-boot-start.txt. Lượt gọi HIDE trước bằng UID shell bị Android
+  từ chối vì service không exported; không tính lượt đó là pass.
+- APK0.6 SHA256:
+ D688526006654B3FCC2A3121CE2BF429D6982C90D6C9BA83EE65076A8D044B65
+  Runtime.so SHA256:
+ D650CB41E729EB09BD335A2D4E786BADAFF0E706684D783D781662ADEDE9B50A
+  Bootstrap0.3 giữ nguyên. Runtime bất biến cũ tiếp tục được giữ để không phá
+  tiến trình đã bind. Không phải DLSS neural/temporal; GLES,3x,NPU, chất lượng
+  gameplay và đo input-to-photon vẫn còn trong phạm vi phải làm tiếp.
 
 CẬP NHẬT0.5 — STEAM, PROVIDER VÀ BOOT
 - Tái hiện có kiểm soát: DroidDeck PID9503 mở trước lúc cập nhật controller;
