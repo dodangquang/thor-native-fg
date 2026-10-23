@@ -1,10 +1,45 @@
-THOR NATIVE FG — NHẬT KÝ KIỂM CHỨNG (CẬP NHẬT 0.12)
+THOR NATIVE FG — NHẬT KÝ KIỂM CHỨNG (CẬP NHẬT 0.14-RC1)
 
-HIỆN TẠI: APK0.12 và runtimeA384... đã cài; bootstrap0.3 giữ nguyên.
-Người dùng đã tắt tự động trong lúc làm việc; cập nhật giữ auto0, không bật
-lại. Neural đang bỏ chọn, GSR1 là lựa chọn hiện tại; manual enabled0.
-Engine vẫn thử nghiệm, mục tiêu DLSS-like đầy đủ chưa đạt. Các mục0.1–0.11
-phía dưới là lịch sử. Xem PRODUCT-REQUIREMENTS.txt để giữ đầy đủ yêu cầu.
+HIỆN TẠI: APK 0.14-rc1 (SHA256 D8F05D42971C3A16736AD2934EE33DE34BCDAED557A4B0E3F0A847DA128F6DA0)
+và runtime v29e0b87f4308c5bb631f6edc9b5ae49e908c7f41ba99975f504e19b2d298e1d7 đã cài;
+bootstrap 0.3 giữ nguyên. Sau kiểm thử có kiểm soát, auto=0, enabled=0, sr=0, target=''
+và presenter='' đã được khôi phục đầy đủ.
+
+CẬP NHẬT 0.14-RC1 — CẢI THIỆN NỘI SUY KHUNG HÌNH (HUD TĨNH + LUỒNG NGƯỢC 2 BƯỚC) & SGSR2 TRÊN DROIDDECK + SR/FG TRÊN EDEN
+- Cải thiện shaders/interpolate.comp (versionCode=14, 0.14-rc1):
+  * Mở rộng stationaryPatch(ivec2 at) kiểm tra lân cận 3x3 pixel để giữ nguyên nét chữ/viền HUD
+    tĩnh mảnh 1px trước khi warp theo vector chuyển động khối 8x8.
+  * Thêm bước tinh chỉnh luồng ngược 2 bước (2-step inverse flow refinement) và kiểm tra độ lệch
+    nhất quán hai đầu (endpointConsistency = length(bestFlow - refinedFlow)) để giảm bóng ma
+    ở rìa vật thể chuyển động nhanh và vùng che khuất (occlusion/disocclusion).
+  * Cả 10 bộ kiểm thử tự động chạy trực tiếp trên AYN Thor đều PASS 100%:
+    thor-selftest (27/27 PASS, MIDPOINT mean_abs_error=0.0000), thor-neural-selftest (24/24 PASS),
+    thor-presentation-test (32/32 PASS), thor-auto-config-test (22/22 PASS), thor-auto-ipc-test (2/2 PASS),
+    thor-auto-provider-test, thor-frame-worker-test, thor-queue-plan-test, thor-wsi-guard-test,
+    thor-presenter-policy-test (đều exit 0).
+- Tích hợp Qualcomm SGSR2 (2-Pass Compute) thực tế trên DroidDeck (Foxtale Demo, AppID 3448970, UE5.4):
+  * Phát hiện và xử lý triệt để lỗi sọc dọc xanh/tím (UBWC tiling mismatch giữa DXVK và vkd3d-proton
+    trên Adreno 740 khi chia sẻ texture qua D3D11On12 CreateSharedHandle) bằng cách viết lại
+    SGSR2Feature_Dx11on12.{h,cpp} kế thừa trực tiếp IFeature_Dx11 (IsWithDx12()=false), biên dịch
+    và thực thi trực tiếp 2 compute shader cs_5_0 (SGSR2_ConvertShader + SGSR2_UpscaleShader)
+    ngay trên ID3D11DeviceContext của game (DXVK), gắn trực tiếp SRV/UAV (copy=false) và loại bỏ
+    hoàn toàn cầu nối vkd3d-proton cùng chờ đợi fence CPU.
+  * Bản ARM64EC dxgi.dll cuối cùng (SHA256 8832d615be41375ab85f5c1c7a122f2924fc71559cf47966a4704f14d781c4ff)
+    chạy SGSR2 853x480 -> 1280x720 (Quality=2, depth fmt 19 valid=true, mv 1280x720 fmt 34) kết hợp
+    cùng lúc với ThorNativeFG 0.14-rc1 (1920x1080):
+    + Màn hình 3D menu: 59.32–60.36 FPS gốc -> 117.86–118.89 FPS hiển thị (gap median 8.412ms,
+      p95 8.415ms, GPU FG input ~1.73–1.84ms, output ~0.64–0.66ms).
+    + Gameplay 3D ngoài trời UE5.4: 14.26–16.72 FPS gốc -> 30.48–33.25 FPS hiển thị, hình ảnh 3D
+      và chữ HUD sắc nét, hoàn toàn sạch lỗi sọc UBWC (research/foxtale_gameplay_sgsr2_fg014.png).
+- Kiểm chứng tích hợp THOR_LOW_COMPOSITE + ThorNativeFG 0.14-rc1 trên Eden (Super Mario Odyssey):
+  * Thu thập thành công Probe v3 (token=18, research/eden-mario-probe-18-summary.json): 3 snapshot
+    đủ 57 render targets, overflow_draws=0, parsed_complete=True, direct_final_matches=1.
+  * Chạy thực tế THOR_LOW_COMPOSITE (1280x720 -> 1920x1080) kết hợp Neural 2D SR có giới hạn (sr=1,
+    sa=2, sr_in_w=1280, sr_in_h=720, sr_presents=34055) và Frame Gen 0.14-rc1:
+    + Màn hình 3D title/menu (async_shared): 59.93–60.07 FPS gốc -> 117.87–118.89 FPS hiển thị
+      (gap median 8.412ms, p95 8.414ms, GPU FG input ~0.99–1.05ms, output ~0.42–0.44ms).
+    + Gameplay 3D Cap Kingdom (fence mặc định): 48.48–49.43 FPS gốc -> 91.66–96.68 FPS hiển thị
+      (gap median 8.415ms, p95 16.831ms, GPU FG input ~1.01–1.03ms, output ~0.44–0.45ms).
 
 CẬP NHẬT0.12 — GIẢM VIỀN SÁNG NEURAL, ĐO CHẤT LƯỢNG BẰNG ẢNH THAM CHIẾU
 - Neural tùy chọn có giới hạn RGB theo khoảng màu của4pixel nguồn trong vùng

@@ -55,11 +55,28 @@ void Engine::init(Api& api,const VkPhysicalDeviceMemoryProperties& mem,VkExtent2
  qualitySet=allocate(qualityPipe);buffer(qualitySet,0);
 }
 void Engine::initSpatial(Api& api,const VkPhysicalDeviceMemoryProperties& mem,VkExtent2D in,VkExtent2D out,SpatialModel model){
- a=&api;memory=mem;input=in;output=out;spatialModel=model;
- history[0]=createImage(in,VK_FORMAT_R8G8B8A8_UNORM,VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT);
- upCurrent=createImage(out,VK_FORMAT_R8G8B8A8_UNORM,VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+ a=&api;memory=mem;input=in;output=out;spatialModel=model;write=0;initialized=false;
  VkSamplerCreateInfo sc{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};sc.magFilter=sc.minFilter=VK_FILTER_LINEAR;sc.mipmapMode=VK_SAMPLER_MIPMAP_MODE_NEAREST;sc.addressModeU=sc.addressModeV=sc.addressModeW=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
  requireVk(a->CreateSampler(a->device,&sc,nullptr,&sampler),"SpatialSampler");
+ if(model==SpatialModel::Sgsr2){
+  const auto S=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,I=VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  history[0]=createImage(in,VK_FORMAT_R8G8B8A8_UNORM,VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+  history[1]=createImage(in,VK_FORMAT_R8G8B8A8_UNORM,VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+  for(auto& im:sgsr2History)im=createImage(out,VK_FORMAT_R8G8B8A8_UNORM,VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+  VkDescriptorPoolSize sizes[]={{S,6u},{I,2u}};
+  VkDescriptorPoolCreateInfo dp{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};dp.maxSets=2;dp.poolSizeCount=2;dp.pPoolSizes=sizes;requireVk(a->CreateDescriptorPool(a->device,&dp,nullptr,&descriptors),"Sgsr2Descriptors");
+  upscalePipe=createPipeline(sgsr2_spv,sizeof(sgsr2_spv),{S,S,S,I},20);
+  for(int i=0;i<2;i++){
+   upSets[i]=allocate(upscalePipe);
+   sampled(upSets[i],0,history[i]);
+   sampled(upSets[i],1,history[1-i]);
+   sampled(upSets[i],2,sgsr2History[1-i]);
+   storage(upSets[i],3,sgsr2History[i]);
+  }
+  return;
+ }
+ history[0]=createImage(in,VK_FORMAT_R8G8B8A8_UNORM,VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+ upCurrent=createImage(out,VK_FORMAT_R8G8B8A8_UNORM,VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT);
  bool neural=model==SpatialModel::Neural2D||model==SpatialModel::NeuralBounded;
  VkDescriptorPoolSize sizes[]={{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,neural?8u:1u},{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,neural?6u:1u}};
  VkDescriptorPoolCreateInfo dp{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};dp.maxSets=neural?6:1;dp.poolSizeCount=2;dp.pPoolSizes=sizes;requireVk(a->CreateDescriptorPool(a->device,&dp,nullptr,&descriptors),"SpatialDescriptors");
@@ -79,6 +96,31 @@ void Engine::initSpatial(Api& api,const VkPhysicalDeviceMemoryProperties& mem,Vk
  upSets[0]=allocate(upscalePipe);sampled(upSets[0],0,history[0]);storage(upSets[0],1,upCurrent);
 }
 void Engine::recordSpatial(VkCommandBuffer cmd,VkImage source,VkImageLayout sourceLayout,const VkImageBlit& region){
+ if(spatialModel==SpatialModel::Sgsr2){
+  if(!initialized){
+   for(Image* im:{&history[0],&history[1],&sgsr2History[0],&sgsr2History[1]}){
+    barrier(cmd,im->image,VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL,0,VK_ACCESS_TRANSFER_WRITE_BIT);
+    VkClearColorValue zero{};VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
+    a->CmdClearColorImage(cmd,im->image,VK_IMAGE_LAYOUT_GENERAL,&zero,1,&range);
+    barrier(cmd,im->image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_TRANSFER_WRITE_BIT,VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT|VK_ACCESS_TRANSFER_WRITE_BIT);
+   }
+  }else{
+   barrier(cmd,history[write].image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_SHADER_READ_BIT,VK_ACCESS_TRANSFER_WRITE_BIT);
+   barrier(cmd,sgsr2History[write].image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_TRANSFER_READ_BIT,VK_ACCESS_SHADER_WRITE_BIT);
+  }
+  barrier(cmd,source,sourceLayout,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_MEMORY_WRITE_BIT|VK_ACCESS_TRANSFER_READ_BIT,VK_ACCESS_TRANSFER_READ_BIT);
+  VkImageBlit copy=region;copy.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};copy.dstOffsets[0]={0,0,0};copy.dstOffsets[1]={int32_t(input.width),int32_t(input.height),1};
+  a->CmdBlitImage(cmd,source,VK_IMAGE_LAYOUT_GENERAL,history[write].image,VK_IMAGE_LAYOUT_GENERAL,1,&copy,VK_FILTER_NEAREST);
+  barrier(cmd,source,VK_IMAGE_LAYOUT_GENERAL,sourceLayout,VK_ACCESS_TRANSFER_READ_BIT,VK_ACCESS_MEMORY_READ_BIT);
+  barrier(cmd,history[write].image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_TRANSFER_WRITE_BIT,VK_ACCESS_SHADER_READ_BIT);
+  struct {int32_t inW,inH,outW,outH,reset;} push{int32_t(input.width),int32_t(input.height),int32_t(output.width),int32_t(output.height),initialized?0:1};
+  a->CmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,upscalePipe.pipeline);
+  a->CmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,upscalePipe.layout,0,1,&upSets[write],0,nullptr);
+  a->CmdPushConstants(cmd,upscalePipe.layout,VK_SHADER_STAGE_COMPUTE_BIT,0,sizeof(push),&push);
+  a->CmdDispatch(cmd,(output.width+7)/8,(output.height+7)/8,1);
+  barrier(cmd,sgsr2History[write].image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_SHADER_WRITE_BIT,VK_ACCESS_TRANSFER_READ_BIT|VK_ACCESS_SHADER_READ_BIT);
+  write=1-write;initialized=true;return;
+ }
  barrier(cmd,history[0].image,initialized?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL,initialized?VK_ACCESS_SHADER_READ_BIT:0,VK_ACCESS_TRANSFER_WRITE_BIT);
  barrier(cmd,upCurrent.image,initialized?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL,initialized?VK_ACCESS_TRANSFER_READ_BIT:0,VK_ACCESS_SHADER_WRITE_BIT);
  barrier(cmd,source,sourceLayout,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_MEMORY_WRITE_BIT|VK_ACCESS_TRANSFER_READ_BIT,VK_ACCESS_TRANSFER_READ_BIT);
@@ -157,6 +199,6 @@ void Engine::release(){
  for(auto& p:neuralPipes){if(p.pipeline)a->DestroyPipeline(a->device,p.pipeline,nullptr);if(p.layout)a->DestroyPipelineLayout(a->device,p.layout,nullptr);if(p.setLayout)a->DestroyDescriptorSetLayout(a->device,p.setLayout,nullptr);p={};}
  if(descriptors)a->DestroyDescriptorPool(a->device,descriptors,nullptr);if(sampler)a->DestroySampler(a->device,sampler,nullptr);if(nearestSampler)a->DestroySampler(a->device,nearestSampler,nullptr);
  if(statsMapped)a->UnmapMemory(a->device,statsMemory);statsMapped=nullptr;if(stats)a->DestroyBuffer(a->device,stats,nullptr);if(statsMemory)a->FreeMemory(a->device,statsMemory,nullptr);
- for(Image* im:{&history[0],&history[1],&flow,&mid,&upCurrent,&upMid,&neuralFeatures[0],&neuralFeatures[1],&neural2x}){if(im->view)a->DestroyImageView(a->device,im->view,nullptr);if(im->image)a->DestroyImage(a->device,im->image,nullptr);if(im->memory)a->FreeMemory(a->device,im->memory,nullptr);*im={};}
+ for(Image* im:{&history[0],&history[1],&flow,&mid,&upCurrent,&upMid,&sgsr2History[0],&sgsr2History[1],&neuralFeatures[0],&neuralFeatures[1],&neural2x}){if(im->view)a->DestroyImageView(a->device,im->view,nullptr);if(im->image)a->DestroyImage(a->device,im->image,nullptr);if(im->memory)a->FreeMemory(a->device,im->memory,nullptr);*im={};}
  a=nullptr;
 }

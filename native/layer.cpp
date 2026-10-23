@@ -33,12 +33,12 @@ struct Swap {
  uint32_t family=~0u;uint64_t sources=0,generated=0,skipped=0,cutSkipped=0,holdSkipped=0,flowSkipped=0;
  std::chrono::steady_clock::time_point metricsAt=std::chrono::steady_clock::now();
  uint64_t metricsSources=0,metricsGenerated=0;
- std::vector<SpatialFrame> spatialFrames;
+ std::vector<SpatialFrame> spatialFrames;std::unique_ptr<Engine> srEngine;
  VkExtent2D spatialInput{};bool spatialActive=false;SpatialModel spatialModel=SpatialModel::Sgsr1;uint64_t spatialPresents=0;
  bool spatialCompatible=false;
  bool timing=false;uint32_t presentID=0;PresentationWindow presentation;
  struct PendingPresent{bool generated;uint64_t source;};std::unordered_map<uint32_t,PendingPresent> pendingPresents;
- SourceCadence cadence;uint64_t refreshNs=16666667,lastRealDesired=0,rateSkipped=0,budgetSkipped=0,sourceArrivalNs=0;bool scheduleBounded=false;
+ SourceCadence cadence;uint64_t refreshNs=8333333,lastRealDesired=0,rateSkipped=0,budgetSkipped=0,sourceArrivalNs=0;bool scheduleBounded=false;
  VkFence workDone{};bool workPending=false;
  VkQueryPool queries{};uint32_t timestampBits=0;bool outputTimed=false;
  uint32_t costFrames=0,inputGpuSamples=0,outputGpuSamples=0;
@@ -195,7 +195,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL createDevice(VkPhysicalDevice physical,con
  {std::lock_guard<std::mutex> l(globalMutex);devices[key(*out)]=d;}
  LOG("DEVICE registered display_timing=%d application_timing=%d",d->pastTiming!=nullptr,d->applicationTiming);return r;
 }
-static void releaseSwap(Device& d,Swap& s){auto& a=d.a;layerDeviceIdle(d);s.workPending=false;s.flowComparison.reset();s.engine.reset();for(auto sem:s.ready)if(sem)a.DestroySemaphore(d.handle,sem,nullptr);if(s.acquired)a.DestroyFence(d.handle,s.acquired,nullptr);if(s.workDone)a.DestroyFence(d.handle,s.workDone,nullptr);if(s.queries)a.DestroyQueryPool(d.handle,s.queries,nullptr);if(s.pool)a.DestroyCommandPool(d.handle,s.pool,nullptr);s.pool={};s.acquired={};s.workDone={};s.queries={};s.ready.clear();}
+static void releaseSwap(Device& d,Swap& s){auto& a=d.a;layerDeviceIdle(d);s.workPending=false;s.flowComparison.reset();s.srEngine.reset();s.engine.reset();for(auto sem:s.ready)if(sem)a.DestroySemaphore(d.handle,sem,nullptr);if(s.acquired)a.DestroyFence(d.handle,s.acquired,nullptr);if(s.workDone)a.DestroyFence(d.handle,s.workDone,nullptr);if(s.queries)a.DestroyQueryPool(d.handle,s.queries,nullptr);if(s.pool)a.DestroyCommandPool(d.handle,s.pool,nullptr);s.pool={};s.acquired={};s.workDone={};s.queries={};s.ready.clear();}
 static VKAPI_ATTR void VKAPI_CALL destroyDevice(VkDevice device,const VkAllocationCallbacks* alloc){auto d=deviceFor(device);if(!d)return;drainDevice(*d);{std::lock_guard<std::mutex> l(d->mutex);d->a.DeviceWaitIdle(device);d->appCommands.clear();d->appPools.clear();for(auto& entry:d->swaps){entry.second->worker.stop();releaseSwap(*d,*entry.second);}d->swaps.clear();}{std::lock_guard<std::mutex> l(globalMutex);for(auto i=queues.begin();i!=queues.end();)if(i->second.device==d)i=queues.erase(i);else ++i;devices.erase(key(device));}d->a.DestroyDevice(device,alloc);}
 static void trackQueue(std::shared_ptr<Device> d,VkQueue queue,uint32_t family){if(!queue)return;std::lock_guard<std::mutex> l(globalMutex);queues[queue]={d,family};}
 static VKAPI_ATTR void VKAPI_CALL getQueue(VkDevice device,uint32_t family,uint32_t index,VkQueue* out){auto d=deviceFor(device);if(!d)return;d->a.GetDeviceQueue(device,family,index,out);trackQueue(d,*out,family);}
@@ -221,7 +221,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL createSwapchain(VkDevice device,const VkSw
  s->spatialFrames.resize(n);
  s->spatialCompatible=ci->compositeAlpha==VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR||ci->compositeAlpha==VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
  s->timing=d->pastTiming!=nullptr;
- if(d->refreshTiming){VkRefreshCycleDurationGOOGLE cycle{};if(d->refreshTiming(device,*out,&cycle)==VK_SUCCESS&&cycle.refreshDuration)s->refreshNs=cycle.refreshDuration;}
+ if(d->refreshTiming){VkRefreshCycleDurationGOOGLE cycle{};if(d->refreshTiming(device,*out,&cycle)==VK_SUCCESS&&cycle.refreshDuration)s->refreshNs=cycle.refreshDuration>12000000ull?cycle.refreshDuration/2:cycle.refreshDuration;}
  std::lock_guard<std::mutex> l(d->mutex);d->swaps[*out]=s;LOG("SWAPCHAIN %ux%u images=%u eligible=%d active=%d composite_alpha=%u",s->extent.width,s->extent.height,n,ok,enabled(),ci->compositeAlpha);}return r;
 }
 static VKAPI_ATTR void VKAPI_CALL destroySwapchain(VkDevice device,VkSwapchainKHR handle,const VkAllocationCallbacks* alloc){auto d=deviceFor(device);if(!d)return;std::shared_ptr<Swap> swap;{std::lock_guard<std::mutex> lock(d->mutex);auto i=d->swaps.find(handle);if(i!=d->swaps.end())swap=i->second;}if(swap){std::lock_guard<std::mutex> lock(swap->producerMutex);swap->worker.stop();releaseSwap(*d,*swap);std::lock_guard<std::mutex> metadata(d->mutex);d->swaps.erase(handle);}d->a.DestroySwapchainKHR(device,handle,alloc);}

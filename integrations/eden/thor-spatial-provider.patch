@@ -1,0 +1,506 @@
+diff --git a/src/video_core/renderer_vulkan/present/layer.cpp b/src/video_core/renderer_vulkan/present/layer.cpp
+index 9f4aaf3..4afa5c8 100644
+--- a/src/video_core/renderer_vulkan/present/layer.cpp
++++ b/src/video_core/renderer_vulkan/present/layer.cpp
+@@ -18,6 +18,7 @@
+ #include "video_core/renderer_vulkan/present/sgsr.h"
+ #include "video_core/renderer_vulkan/present/fxaa.h"
+ #include "video_core/renderer_vulkan/present/layer.h"
++#include "video_core/renderer_vulkan/present/thor_temporal_probe.h"
+ #ifdef HAS_RESHADE
+ #include "video_core/post_processing/fx_chain.h"
+ #include "video_core/renderer_vulkan/present/post_process.h"
+@@ -116,6 +117,7 @@ void Layer::ConfigureDraw(const Device& device, PresentPushConstants* out_push_c
+     }
+ 
+     VkImage source_image = texture_info ? texture_info->image : *raw_images[image_index];
++    ThorProbe::Color(source_image, scaled_width, scaled_height);
+     VkImageView source_image_view =
+         texture_info ? texture_info->image_view : *raw_image_views[image_index];
+ 
+diff --git a/src/video_core/renderer_vulkan/renderer_vulkan.cpp b/src/video_core/renderer_vulkan/renderer_vulkan.cpp
+index 27ca531..8d4c2ff 100644
+--- a/src/video_core/renderer_vulkan/renderer_vulkan.cpp
++++ b/src/video_core/renderer_vulkan/renderer_vulkan.cpp
+@@ -24,6 +24,8 @@
+ #include "video_core/gpu.h"
+ #include "video_core/present.h"
+ #include "video_core/renderer_vulkan/present/util.h"
++#include "video_core/renderer_vulkan/present/thor_native.h"
++#include "video_core/renderer_vulkan/present/thor_temporal_probe.h"
+ #ifdef HAS_RESHADE
+ #include "video_core/post_processing/fx_chain.h"
+ #endif
+@@ -203,6 +205,7 @@ RendererVulkan::~RendererVulkan() {
+ 
+ void RendererVulkan::Composite(std::span<const Tegra::FramebufferConfig> framebuffers) {
+     SCOPE_EXIT {
++        ThorProbe::EndFrame();
+         render_window.OnFrameDisplayed();
+     };
+ 
+@@ -216,10 +219,25 @@ void RendererVulkan::Composite(std::span<const Tegra::FramebufferConfig> framebu
+     Frame* frame = present_manager.GetRenderFrame();
+ 
+     scheduler.RequestOutsideRenderPassOperationContext();
++    const auto thor_layout = ThorCompositeLayout(render_window.GetFramebufferLayout(), framebuffers,
++                                                  present_manager.SupportsFrameBlit());
++    const auto& composite_layout = thor_layout ? *thor_layout : render_window.GetFramebufferLayout();
++    static thread_local std::array<u32, 4> previous_thor_layout{};
++    if (thor_layout) {
++        const auto& display = render_window.GetFramebufferLayout();
++        const std::array current{thor_layout->width, thor_layout->height, display.width, display.height};
++        if (current != previous_thor_layout) {
++            LOG_INFO(Render_Vulkan, "THOR_LOW_COMPOSITE {}x{} -> {}x{}; color-only provider, not temporal SR",
++                     current[0], current[1], current[2], current[3]);
++            previous_thor_layout = current;
++        }
++    } else {
++        previous_thor_layout = {};
++    }
+     blit_swapchain.DrawToFrame(device, rasterizer, frame, framebuffers,
+-                               render_window.GetFramebufferLayout(),
++                               composite_layout,
+                                present_manager.SwapchainImageCount(),
+-                               swapchain.GetImageViewFormat());
++                               swapchain.GetImageViewFormat(), thor_layout.has_value());
+ 
+ #ifdef HAS_LSFG
+     void(frame_gen.WantedGenerations(present_manager.MaxExtraFrames()));
+diff --git a/src/video_core/renderer_vulkan/vk_blit_screen.cpp b/src/video_core/renderer_vulkan/vk_blit_screen.cpp
+index 205382f..ede3879 100644
+--- a/src/video_core/renderer_vulkan/vk_blit_screen.cpp
++++ b/src/video_core/renderer_vulkan/vk_blit_screen.cpp
+@@ -18,6 +18,10 @@
+ #include "video_core/renderer_vulkan/vk_scheduler.h"
+ 
+ namespace Vulkan {
++namespace {
++Settings::ScalingFilter ThorBilinear() { return Settings::ScalingFilter::Bilinear; }
++constexpr PresentFilters ThorDisplayFilters{&ThorBilinear, &GetAntiAliasing};
++}
+ 
+ BlitScreen::BlitScreen(Tegra::MaxwellDeviceMemoryManager& device_memory_, const Device& device_, MemoryAllocator& memory_allocator_, PresentManager& present_manager_, Scheduler& scheduler_, const PresentFilters& filters_)
+     : device_memory{device_memory_}
+@@ -38,9 +42,13 @@ void BlitScreen::WaitIdle(const Device& device) {
+     device.GetLogical().WaitIdle();
+ }
+ 
++Settings::ScalingFilter BlitScreen::DesiredScalingFilter() const {
++    return thor_upscale ? Settings::ScalingFilter::Bilinear : filters.get_scaling_filter();
++}
++
+ void BlitScreen::SetWindowAdaptPass(const Device& device) {
+     layers.clear();
+-    scaling_filter = filters.get_scaling_filter();
++    scaling_filter = DesiredScalingFilter();
+ 
+     switch (scaling_filter) {
+     case Settings::ScalingFilter::NearestNeighbor:
+@@ -106,11 +114,12 @@ void BlitScreen::DrawToFrame(const Device& device, RasterizerVulkan& rasterizer,
+                              std::span<const Tegra::FramebufferConfig> framebuffers,
+                              const Layout::FramebufferLayout& layout,
+                              size_t current_swapchain_image_count,
+-                             VkFormat current_swapchain_view_format) {
+-    bool resource_update_required = false;
++                             VkFormat current_swapchain_view_format, bool thor_upscale_) {
++    bool resource_update_required = thor_upscale != thor_upscale_;
++    thor_upscale = thor_upscale_;
+     bool presentation_recreate_required = false;
+ 
+-    if (!window_adapt || scaling_filter != filters.get_scaling_filter()) {
++    if (!window_adapt || scaling_filter != DesiredScalingFilter()) {
+         resource_update_required = true;
+     }
+ 
+@@ -151,7 +160,8 @@ void BlitScreen::DrawToFrame(const Device& device, RasterizerVulkan& rasterizer,
+         layers.clear();
+         for (size_t i = 0; i < framebuffers.size(); ++i) {
+             layers.emplace_back(device, memory_allocator, scheduler, device_memory, image_count,
+-                                window_size, window_adapt->GetDescriptorSetLayout(), filters);
++                                window_size, window_adapt->GetDescriptorSetLayout(),
++                                thor_upscale ? ThorDisplayFilters : filters);
+         }
+     }
+ 
+@@ -168,7 +178,7 @@ vk::Framebuffer BlitScreen::CreateFramebuffer(const Device& device, const Layout
+     bool format_updated = swapchain_view_format != current_view_format;
+     swapchain_view_format = current_view_format;
+ 
+-    if (!window_adapt || scaling_filter != filters.get_scaling_filter() || format_updated) {
++    if (!window_adapt || scaling_filter != DesiredScalingFilter() || format_updated) {
+         WaitIdle(device);
+         SetWindowAdaptPass(device);
+         image_index = 0;
+diff --git a/src/video_core/renderer_vulkan/vk_blit_screen.h b/src/video_core/renderer_vulkan/vk_blit_screen.h
+index 56b429a..0a84f2a 100644
+--- a/src/video_core/renderer_vulkan/vk_blit_screen.h
++++ b/src/video_core/renderer_vulkan/vk_blit_screen.h
+@@ -58,7 +58,7 @@ public:
+     void DrawToFrame(const Device& device, RasterizerVulkan& rasterizer, Frame* frame,
+                      std::span<const Tegra::FramebufferConfig> framebuffers,
+                      const Layout::FramebufferLayout& layout, size_t current_swapchain_image_count,
+-                     VkFormat current_swapchain_view_format);
++                     VkFormat current_swapchain_view_format, bool thor_upscale = false);
+ 
+     void PrepareFrame(const Device& device, Frame* frame, const Layout::FramebufferLayout& layout);
+ 
+@@ -69,6 +69,7 @@ public:
+ private:
+     void WaitIdle(const Device& device);
+     void SetWindowAdaptPass(const Device& device);
++    Settings::ScalingFilter DesiredScalingFilter() const;
+     vk::Framebuffer CreateFramebuffer(const Device& device, const VkImageView& image_view, VkExtent2D extent,
+                                       VkRenderPass render_pass);
+ 
+@@ -82,6 +83,7 @@ private:
+     VkFormat swapchain_view_format{};
+ 
+     Settings::ScalingFilter scaling_filter{};
++    bool thor_upscale{};
+     std::unique_ptr<WindowAdaptPass> window_adapt{};
+     std::list<Layer> layers{};
+ };
+diff --git a/src/video_core/renderer_vulkan/vk_present_manager.h b/src/video_core/renderer_vulkan/vk_present_manager.h
+index ab2b76f..9aba8d0 100644
+--- a/src/video_core/renderer_vulkan/vk_present_manager.h
++++ b/src/video_core/renderer_vulkan/vk_present_manager.h
+@@ -70,6 +70,7 @@ public:
+     [[nodiscard]] size_t MaxExtraFrames() const;
+ 
+     [[nodiscard]] std::size_t SwapchainImageCount() const { return swapchain_image_count; }
++    [[nodiscard]] bool SupportsFrameBlit() const { return blit_supported; }
+     [[nodiscard]] VkFormat SwapchainImageFormat() const { return swapchain_image_format; }
+ 
+ private:
+diff --git a/src/video_core/renderer_vulkan/vk_rasterizer.cpp b/src/video_core/renderer_vulkan/vk_rasterizer.cpp
+index f43bea1..d2cdfbd 100644
+--- a/src/video_core/renderer_vulkan/vk_rasterizer.cpp
++++ b/src/video_core/renderer_vulkan/vk_rasterizer.cpp
+@@ -37,6 +37,7 @@
+ #include "video_core/renderer_vulkan/vk_staging_buffer_pool.h"
+ #include "video_core/renderer_vulkan/vk_state_tracker.h"
+ #include "video_core/renderer_vulkan/vk_texture_cache.h"
++#include "video_core/renderer_vulkan/present/thor_temporal_probe.h"
+ #include "video_core/renderer_vulkan/vk_update_descriptor.h"
+ #include "video_core/shader_cache.h"
+ #include "video_core/texture_cache/texture_cache_base.h"
+@@ -251,6 +252,11 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
+     if (!pipeline->Configure(is_indexed))
+         return;
+ 
++    if (ThorProbe::trace.enabled) {
++        ThorProbe::Draw(*texture_cache.GetFramebuffer(), maxwell3d->regs.depth_test_enable != 0,
++                        maxwell3d->regs.depth_write_enabled != 0);
++    }
++
+     UpdateDynamicStates();
+ 
+     query_cache.NotifySegment(true);
+diff --git a/src/video_core/renderer_vulkan/vk_texture_cache.cpp b/src/video_core/renderer_vulkan/vk_texture_cache.cpp
+index 583cb6e..83deb42 100644
+--- a/src/video_core/renderer_vulkan/vk_texture_cache.cpp
++++ b/src/video_core/renderer_vulkan/vk_texture_cache.cpp
+@@ -2996,6 +2996,9 @@ void Framebuffer::CreateFramebuffer(TextureCacheRuntime& runtime,
+         renderpass_key.color_formats[index] = color_buffer->format;
+         num_layers = (std::max)(num_layers, color_buffer->range.extent.layers);
+         images[num_images] = color_buffer->ImageHandle();
++        image_extents[num_images] = {
++            is_rescaled ? resolution.ScaleUp(color_buffer->size.width) : color_buffer->size.width,
++            is_rescaled ? resolution.ScaleUp(color_buffer->size.height) : color_buffer->size.height};
+         image_ranges[num_images] = MakeSubresourceRange(color_buffer);
+         rt_map[index] = num_images;
+         samples = color_buffer->Samples();
+@@ -3013,6 +3016,9 @@ void Framebuffer::CreateFramebuffer(TextureCacheRuntime& runtime,
+         renderpass_key.depth_format = depth_buffer->format;
+         num_layers = (std::max)(num_layers, depth_buffer->range.extent.layers);
+         images[num_images] = depth_buffer->ImageHandle();
++        image_extents[num_images] = {
++            is_rescaled ? resolution.ScaleUp(depth_buffer->size.width) : depth_buffer->size.width,
++            is_rescaled ? resolution.ScaleUp(depth_buffer->size.height) : depth_buffer->size.height};
+         const VkImageSubresourceRange subresource_range = MakeSubresourceRange(depth_buffer);
+         image_ranges[num_images] = subresource_range;
+         samples = depth_buffer->Samples();
+diff --git a/src/video_core/renderer_vulkan/vk_texture_cache.h b/src/video_core/renderer_vulkan/vk_texture_cache.h
+index 2e9736f..3605e59 100644
+--- a/src/video_core/renderer_vulkan/vk_texture_cache.h
++++ b/src/video_core/renderer_vulkan/vk_texture_cache.h
+@@ -246,6 +246,10 @@ public:
+         return images;
+     }
+ 
++    [[nodiscard]] const std::array<VkExtent2D, 9>& ImageExtents() const noexcept {
++        return image_extents;
++    }
++
+     [[nodiscard]] const std::array<VkImageSubresourceRange, 9>& ImageRanges() const noexcept {
+         return image_ranges;
+     }
+@@ -288,6 +292,7 @@ private:
+     u32 num_color_buffers = 0;
+     u32 num_images = 0;
+     std::array<VkImage, 9> images{};
++    std::array<VkExtent2D, 9> image_extents{};
+     std::array<VkImageSubresourceRange, 9> image_ranges{};
+     std::array<size_t, NUM_RT> rt_map{};
+     bool has_depth{};
+diff --git a/src/video_core/renderer_vulkan/present/thor_native.h b/src/video_core/renderer_vulkan/present/thor_native.h
+new file mode 100644
+--- /dev/null
++++ b/src/video_core/renderer_vulkan/present/thor_native.h
+@@ -0,0 +1,80 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++#pragma once
++#include <algorithm>
++#include <cmath>
++
++#include "common/settings.h"
++#include "core/frontend/framebuffer_layout.h"
++#include "video_core/framebuffer_config.h"
++#include "video_core/renderer_vulkan/present/thor_composite_layout.h"
++
++#ifdef __ANDROID__
++#include <array>
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <sys/system_properties.h>
++#endif
++
++namespace Vulkan {
++inline bool ThorSpatialRequested() {
++#ifdef __ANDROID__
++    if (Settings::values.frame_gen.GetValue()) return false;
++    auto enabled = [](const char* key) {
++        char value[PROP_VALUE_MAX]{};
++        __system_property_get(key, value);
++        return std::strcmp(value, "1") == 0;
++    };
++    const char* automatic = std::getenv("THOR_FG_AUTO_MATCH");
++    if (automatic && std::strcmp(automatic, "1") == 0) {
++        return enabled("debug.thorfg.auto") && enabled("debug.thorfg.auto_sr");
++    }
++    if (!enabled("debug.thorfg.enabled") || !enabled("debug.thorfg.sr")) return false;
++    static const auto process = [] {
++        std::array<char, 256> name{};
++        if (auto file = std::fopen("/proc/self/cmdline", "rb")) {
++            std::fread(name.data(), 1, name.size() - 1, file);
++            std::fclose(file);
++        }
++        return name;
++    }();
++    char target[PROP_VALUE_MAX]{};
++    __system_property_get("debug.thorfg.target", target);
++    const auto size = std::strlen(target);
++    return size && std::strncmp(process.data(), target, size) == 0 &&
++           (process[size] == 0 || process[size] == ':');
++#else
++    return false;
++#endif
++}
++
++inline std::optional<Layout::FramebufferLayout> ThorCompositeLayout(
++    const Layout::FramebufferLayout& display,
++    std::span<const Tegra::FramebufferConfig> framebuffers, bool blit_supported) {
++    if (!blit_supported || !ThorSpatialRequested() || framebuffers.size() != 1) return {};
++    const auto& source = framebuffers.front();
++    if (source.width < 16 || source.height < 16 || source.width > 4096 || source.height > 4096) return {};
++    if (source.blending != Tegra::BlendMode::Opaque ||
++        (static_cast<u32>(source.transform_flags) & 4) || display.is_srgb) return {};
++    const auto crop = Tegra::NormalizeCrop(source, source.width, source.height);
++    const auto& resolution = Settings::values.resolution_info;
++    const auto width = resolution.ScaleUp(source.width);
++    const auto height = resolution.ScaleUp(source.height);
++    if (width < 16 || height < 16 || width > 4096 || height > 4096 ||
++        !std::isfinite(crop.left) || !std::isfinite(crop.right) ||
++        !std::isfinite(crop.top) || !std::isfinite(crop.bottom) ||
++        std::min(crop.left, crop.right) < 0 || std::max(crop.left, crop.right) > 1 ||
++        std::min(crop.top, crop.bottom) < 0 || std::max(crop.top, crop.bottom) > 1) return {};
++    const u32 content_width = static_cast<u32>(std::abs(crop.right - crop.left) * width);
++    const u32 content_height = static_cast<u32>(std::abs(crop.bottom - crop.top) * height);
++    const auto result = thor::sourceComposite(
++        {display.width, display.height, display.screen.left, display.screen.top,
++         display.screen.right, display.screen.bottom}, content_width, content_height);
++    if (!result) return {};
++    auto layout = display;
++    layout.width = result->width;
++    layout.height = result->height;
++    layout.screen = {result->left, result->top, result->right, result->bottom};
++    return layout;
++}
++}
+diff --git a/src/video_core/renderer_vulkan/present/thor_composite_layout.h b/src/video_core/renderer_vulkan/present/thor_composite_layout.h
+new file mode 100644
+--- /dev/null
++++ b/src/video_core/renderer_vulkan/present/thor_composite_layout.h
+@@ -0,0 +1,37 @@
++// SPDX-License-Identifier: MIT
++#pragma once
++#include <cstdint>
++#include <optional>
++
++namespace thor {
++struct CompositeLayout {
++    uint32_t width, height, left, top, right, bottom;
++};
++
++// Preserve display geometry while compositing at the source's pixel density.
++inline std::optional<CompositeLayout> sourceComposite(CompositeLayout display,
++                                                      uint32_t sourceWidth,
++                                                      uint32_t sourceHeight) {
++    if (display.width < 16 || display.height < 16 || display.width > 4096 ||
++        display.height > 4096 || display.left >= display.right ||
++        display.top >= display.bottom || display.right > display.width ||
++        display.bottom > display.height || sourceWidth < 16 || sourceHeight < 16 ||
++        sourceWidth > 4096 || sourceHeight > 4096) return {};
++    uint64_t numerator = sourceWidth, denominator = display.right - display.left;
++    if (uint64_t(sourceHeight) * denominator < numerator * (display.bottom - display.top)) {
++        numerator = sourceHeight;
++        denominator = display.bottom - display.top;
++    }
++    if (numerator >= denominator) return {};
++    const uint32_t width = uint64_t(display.width) * numerator / denominator;
++    const uint32_t height = uint64_t(display.height) * numerator / denominator;
++    if (width < 16 || height < 16 || width >= display.width || height >= display.height) return {};
++    CompositeLayout result{width, height,
++        uint32_t(uint64_t(display.left) * width / display.width),
++        uint32_t(uint64_t(display.top) * height / display.height),
++        uint32_t(uint64_t(display.right) * width / display.width),
++        uint32_t(uint64_t(display.bottom) * height / display.height)};
++    if (result.right - result.left < 16 || result.bottom - result.top < 16) return {};
++    return result;
++}
++}
+diff --git a/src/video_core/renderer_vulkan/present/thor_temporal_probe.h b/src/video_core/renderer_vulkan/present/thor_temporal_probe.h
+new file mode 100644
+--- /dev/null
++++ b/src/video_core/renderer_vulkan/present/thor_temporal_probe.h
+@@ -0,0 +1,128 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++#pragma once
++
++#include <array>
++#include <cstdlib>
++#include <functional>
++
++#include "common/logging.h"
++#include "video_core/surface.h"
++#include "video_core/vulkan_common/vulkan_wrapper.h"
++#ifdef __ANDROID__
++#include <sys/system_properties.h>
++#endif
++
++namespace Vulkan {
++namespace ThorProbe {
++struct Target {
++    size_t framebuffer{};
++    u32 width{}, height{}, colors{}, samples{}, depth_format{};
++    size_t depth{};
++    VkExtent2D depth_extent{};
++    std::array<size_t, 8> color_images{};
++    std::array<VkExtent2D, 8> color_extents{};
++    std::array<u32, 8> color_formats{};
++    std::array<u32, 8> color_slots{};
++    u32 draws{}, depth_tests{}, depth_writes{};
++};
++struct Trace {
++    bool enabled{};
++    unsigned token{}, frame{}, count{}, overflow{};
++    std::array<Target, 256> targets{};
++    size_t final_color{};
++    u32 final_width{}, final_height{};
++};
++inline thread_local Trace trace;
++
++template <typename Framebuffer>
++inline void Draw(const Framebuffer& framebuffer, bool depth_test, bool depth_write) {
++    auto& t = trace;
++    if (!t.enabled) return;
++    const auto identity = std::hash<VkFramebuffer>{}(framebuffer.Handle());
++    unsigned at = 0;
++    for (; at < t.count; ++at) if (t.targets[at].framebuffer == identity) break;
++    if (at == t.count) {
++        if (t.count == t.targets.size()) { ++t.overflow; return; }
++        auto& target = t.targets[t.count++];
++        target = {};
++        target.framebuffer = identity;
++        const auto extent = framebuffer.RenderArea();
++        target.width = extent.width;
++        target.height = extent.height;
++        target.colors = framebuffer.NumColorBuffers();
++        target.samples = static_cast<u32>(framebuffer.Samples());
++        const auto& key = framebuffer.RenderPassKeyBase();
++        target.depth_format = static_cast<u32>(key.depth_format);
++        unsigned color = 0;
++        for (u32 i = 0; i < framebuffer.NumImages(); ++i) {
++            const auto image = std::hash<VkImage>{}(framebuffer.Images()[i]);
++            if (framebuffer.ImageRanges()[i].aspectMask & VK_IMAGE_ASPECT_DEPTH_BIT) {
++                target.depth = image;
++                target.depth_extent = framebuffer.ImageExtents()[i];
++            } else if ((framebuffer.ImageRanges()[i].aspectMask & VK_IMAGE_ASPECT_COLOR_BIT) &&
++                       color < target.color_images.size()) {
++                target.color_extents[color] = framebuffer.ImageExtents()[i];
++                target.color_images[color++] = image;
++            }
++        }
++        unsigned packed = 0;
++        for (unsigned i = 0; i < key.color_formats.size(); ++i) {
++            if (key.color_formats[i] == VideoCore::Surface::PixelFormat::Invalid) continue;
++            target.color_formats[packed] = static_cast<u32>(key.color_formats[i]);
++            target.color_slots[packed++] = i;
++        }
++    }
++    auto& target = t.targets[at];
++    ++target.draws;
++    target.depth_tests += depth_test;
++    target.depth_writes += depth_write;
++}
++
++inline void Color(VkImage image, u32 width, u32 height) {
++    if (!trace.enabled) return;
++    trace.final_color = std::hash<VkImage>{}(image);
++    trace.final_width = width;
++    trace.final_height = height;
++}
++
++inline void EndFrame() {
++    auto& t = trace;
++    unsigned token = 0;
++#ifdef __ANDROID__
++    char value[PROP_VALUE_MAX]{};
++    __system_property_get("debug.thorfg.probe", value);
++    token = static_cast<unsigned>(std::strtoul(value, nullptr, 10));
++#endif
++    if (t.enabled && (t.frame % 60 == 0)) {
++        LOG_INFO(Render_Vulkan, "THOR_TEMPORAL_PROBE token={} frame={} final_color={:x} {}x{} targets={} overflow={}; metadata only, not validated temporal inputs",
++                 t.token, t.frame, t.final_color, t.final_width, t.final_height, t.count, t.overflow);
++        for (unsigned i = 0; i < t.count; ++i) {
++            const auto& target = t.targets[i];
++            LOG_INFO(Render_Vulkan, "THOR_TARGET fb={:x} {}x{} colors={} samples={} depth={:x} depth_format={} draws={} depth_tests={} depth_writes={}",
++                     target.framebuffer, target.width, target.height, target.colors,
++                     target.samples, target.depth, target.depth_format, target.draws,
++                     target.depth_tests, target.depth_writes);
++            if (target.depth)
++                LOG_INFO(Render_Vulkan, "THOR_DEPTH_SIZE {}x{}",
++                         target.depth_extent.width, target.depth_extent.height);
++            for (unsigned color = 0; color < target.color_images.size(); ++color)
++                if (target.color_images[color])
++                    LOG_INFO(Render_Vulkan, "THOR_COLOR slot={} image={:x} format={} extent={}x{}",
++                             target.color_slots[color], target.color_images[color],
++                             target.color_formats[color], target.color_extents[color].width,
++                             target.color_extents[color].height);
++        }
++    }
++    if (token != t.token) {
++        t = {};
++        t.token = token;
++    } else if (t.enabled) {
++        ++t.frame;
++    }
++    t.enabled = token != 0 && t.frame < 128;
++    t.count = t.overflow = 0;
++    t.final_color = 0;
++    t.final_width = t.final_height = 0;
++}
++} // namespace ThorProbe
++} // namespace Vulkan

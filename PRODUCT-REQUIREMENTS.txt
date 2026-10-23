@@ -1,3 +1,41 @@
+CURRENT OBJECTIVE (latest user update, 2026-10-23)
+Prioritize best practical FG image quality and stability on official Eden Nightly
+and DroidDeck. DroidDeck also requires proper lower-resolution upscale for heavy
+games. Eden may retain its built-in upscaler; new Thor upscale integration there
+is optional and deferred. Preserve official signatures/update paths. Require real
+generated-frame presentation, fast-motion/cut/occlusion/HUD quality, fallback and
+recovery, and actual gameplay validation. Do not equate a build or FPS counter
+with quality/stability. Keep automatic activation off after controlled tests.
+Android game support is conditional and must not be claimed universally.
+
+PREVIOUS OBJECTIVE (superseded by latest user update)
+Find and implement a usable GSR 2 path for Eden and DroidDeck.
+This supersedes the broader all-emulator/DLSS-like product completion scope
+below. Retain the old requirements as historical context, not an active gate.
+Prioritize real temporal GSR 2 input integration and actual device validation.
+Keep existing human game progress intact and automatic activation off after
+controlled tests. Never relabel SGSR1 or a color-only spatial provider as GSR2.
+
+Active investigation & 2026-10-23 verified milestones:
+- ThorNativeFG 0.14-rc1 (APK SHA256 D8F05D42971C3A16736AD2934EE33DE34BCDAED557A4B0E3F0A847DA128F6DA0,
+  runtime v29e0b87f4308c5bb631f6edc9b5ae49e908c7f41ba99975f504e19b2d298e1d7) built, installed,
+  and passed all 10 native/GPU self-test binaries on AYN Thor (including 27/27 GPU FG/SR checks,
+  24/24 neural SR checks, and 32/32 presentation timing checks). Includes 3x3 stationaryPatch
+  1px HUD stroke protection, 2-step inverse flow refinement, and endpoint consistency check.
+- DroidDeck SGSR2: Built ARM64EC OptiScaler.dll (dxgi.dll, SHA256
+  8832d615be41375ab85f5c1c7a122f2924fc71559cf47966a4704f14d781c4ff) with native D3D11 compute
+  SGSR2 execution on DXVK (eliminating Turnip Adreno 740 UBWC stripe corruption from D3D11On12
+  vkd3d-proton shared handles) plus Kettle Linux display-size motion vector scale & Lanczos
+  negative-lobe weight guard. Verified live on AYN Thor in Foxtale Demo (UE5.4, 853x480 -> 1280x720
+  SGSR2 + 1920x1080 ThorFG 0.14-rc1: 59.32-60.36 -> 117.86-118.89 FPS in 3D menu, 14.26-16.72 ->
+  30.48-33.25 FPS in heavy UE5 outdoor gameplay, clean visuals verified in screenshots).
+- Eden: Captured complete Probe v3 trace 18 in Super Mario Odyssey 3D Cap Kingdom (57 targets,
+  overflow=0, direct_final_matches=1) and verified THOR_LOW_COMPOSITE (1280x720 -> 1920x1080)
+  with bounded Neural 2D SR (sr=1, sa=2, 34,055 frames) + ThorFG 0.14-rc1 live in 3D title/menu
+  (59.93 -> 118.89 FPS) and 3D Cap Kingdom gameplay (49.04 -> 96.68 FPS with fence presenter).
+  All automatic/manual FG & SR flags restored to 0 after testing.
+
+HISTORICAL OBJECTIVE — superseded in scope
 THOR — independent super resolution + frame generation product objective
 User objective: continue until an actually usable DLSS-like product exists.
 User update: final output must be one easy-to-use app, with a choice of upscale

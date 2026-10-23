@@ -1,0 +1,31 @@
+Eden source-side spatial provider, 2026-10-23
+
+Original phone session dev.eden.eden_emulator.nightly PID 20692 remains intact.
+The user played after earlier save archives were made. All those archives are
+stale and must never be restored as a current test baseline.
+Manual/automatic Thor activation stayed off during the source build.
+
+Implementation and provenance are in integrations/eden/README.txt. The patch
+is against Eden 989768aa46720e3fcab9e2111e3ddd70819c382b and was exported
+without staging, committing, pushing or submitting changes upstream.
+git apply --reverse --check passes against the modified source including
+the two previously untracked provider headers. Native renderer_vulkan.cpp
+and vk_blit_screen.cpp have compiled successfully in the ongoing native build.
+
+Geometry helper: native/composite_layout.hpp, copied verbatim into the Eden
+patch. tests/run-composite-layout.ps1 compiles it with NDK 27 static libc++,
+runs it on the Thor and removes the temporary device executable. The script
+initially omitted chmod and failed with permission denied; adding chmod fixed
+the harness. Final result: 12 explicit cases and 125 geometry invariants PASS.
+No original emulator process, configuration or save was modified by this test.
+
+Native build completed SUCCESSFUL in25m16s, assembly in2m45s. APK manifest
+verified separate package dev.eden.eden_emulator.relWithDebInfo (minSdk33).
+SHA256 873357b6f3b214d01df4246fbd6d01b1b84bb18216f5ef1e4f97333e54979cff.
+Installed successfully beside Nightly; no game launched and no old saves
+restored. The goal has since narrowed to GSR2 for Eden and DroidDeck; this
+spatial provider remains scaffold for source-side temporal integration.
+
+These are geometry/build checks only. Actual Eden SR integration, image
+quality, pacing and performance remain unverified. No temporal GSR2 inputs
+are supplied by this provider. Do not claim DLSS-quality completion.

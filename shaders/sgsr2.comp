@@ -1,0 +1,250 @@
+#version 450
+//============================================================================================================
+//
+//                  Copyright (c) 2024, Qualcomm Innovation Center, Inc. All rights reserved.
+//                              SPDX-License-Identifier: BSD-3-Clause
+//
+//         Adapted to Vulkan compute with optical-flow motion & disocclusion for Thor Native FG (SGSR2).
+//============================================================================================================
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(binding = 0) uniform sampler2D InputColor;
+layout(binding = 1) uniform sampler2D PrevInputColor;
+layout(binding = 2) uniform sampler2D PrevOutput;
+layout(binding = 3, rgba8) uniform writeonly image2D OutputImage;
+
+layout(push_constant) uniform Params {
+    ivec2 renderSize;
+    ivec2 outputSize;
+    int reset;
+} p;
+
+float FastLanczos(float base)
+{
+    float y = base - 1.0f;
+    float y2 = y * y;
+    float y_temp = 0.75f * y + y2;
+    return y_temp * y2;
+}
+
+float luma(vec3 c)
+{
+    return dot(c, vec3(0.299f, 0.587f, 0.114f));
+}
+
+vec4 fetchColor(ivec2 at)
+{
+    return texelFetch(InputColor, clamp(at, ivec2(0), p.renderSize - 1), 0);
+}
+
+void main()
+{
+    ivec2 at = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(at, p.outputSize))) return;
+
+    vec2 renderSizeF = vec2(p.renderSize);
+    vec2 outputSizeF = vec2(p.outputSize);
+    vec2 renderSizeRcp = 1.0f / renderSizeF;
+
+    float Biasmax_viewportXScale = outputSizeF.x / renderSizeF.x;
+    float scalefactor = min(20.0f, pow((outputSizeF.x * outputSizeF.y) / (renderSizeF.x * renderSizeF.y), 3.0f));
+
+    vec2 Hruv = (vec2(at) + 0.5f) / outputSizeF;
+    vec2 Jitteruv = clamp(Hruv, 0.0f, 1.0f);
+    ivec2 InputPos = clamp(ivec2(Jitteruv * renderSizeF), ivec2(0), p.renderSize - 1);
+
+    // Estimate local motion vector & disocclusion factor (mda.xyz) between PrevInputColor and InputColor
+    vec3 currCenter = fetchColor(InputPos).xyz;
+    vec3 prevCenter = textureLod(PrevInputColor, Jitteruv, 0.0f).xyz;
+    vec2 bestOffset = vec2(0.0f);
+    float bestErr = dot(abs(currCenter - prevCenter), vec3(0.299f, 0.587f, 0.114f));
+
+    if (p.reset == 0 && bestErr > (1.0f / 255.0f)) {
+        const ivec2 offsets[8] = ivec2[8](
+            ivec2(-1, 0), ivec2(1, 0), ivec2(0, -1), ivec2(0, 1),
+            ivec2(-2, 0), ivec2(2, 0), ivec2(0, -2), ivec2(0, 2)
+        );
+        float cL = luma(currCenter);
+        float cR = luma(fetchColor(InputPos + ivec2(1, 0)).xyz);
+        float cD = luma(fetchColor(InputPos + ivec2(0, 1)).xyz);
+        for (int i = 0; i < 8; i++) {
+            vec2 offUV = vec2(offsets[i]) * renderSizeRcp;
+            vec2 candUV = clamp(Jitteruv + offUV, 0.0f, 1.0f);
+            float pL = luma(textureLod(PrevInputColor, candUV, 0.0f).xyz);
+            float pR = luma(textureLod(PrevInputColor, clamp(candUV + vec2(renderSizeRcp.x, 0.0f), 0.0f, 1.0f), 0.0f).xyz);
+            float pD = luma(textureLod(PrevInputColor, clamp(candUV + vec2(0.0f, renderSizeRcp.y), 0.0f, 1.0f), 0.0f).xyz);
+            float err = (abs(cL - pL) * 2.0f + abs(cR - pR) + abs(cD - pD)) * 0.25f + 0.002f * float(abs(offsets[i].x) + abs(offsets[i].y));
+            if (err < bestErr) {
+                bestErr = err;
+                bestOffset = offUV;
+            }
+        }
+    }
+
+    vec2 Motion = -2.0f * bestOffset;
+    float depthfactor = clamp(bestErr * 5.0f, 0.0f, 1.0f);
+    vec3 mda = vec3(Motion, depthfactor);
+
+    vec2 PrevUV = clamp(-0.5f * Motion + Hruv, 0.0f, 1.0f);
+    vec3 HistoryColor = textureLod(PrevOutput, PrevUV, 0.0f).xyz;
+
+    // Upsample and compute neighborhood variance box (SGSR2 9-tap FastLanczos + Gaussian box)
+    vec4 Upsampledcw = vec4(0.0f);
+    float biasmax = Biasmax_viewportXScale;
+    float biasmin = max(1.0f, 0.3f + 0.3f * biasmax);
+    float biasfactor = 0.25f * depthfactor;
+    float kernelbias = mix(biasmax, biasmin, biasfactor);
+    float motion_viewport_len = length(Motion * outputSizeF);
+    float curvebias = mix(-2.0f, -3.0f, clamp(motion_viewport_len * 0.02f, 0.0f, 1.0f));
+
+    vec3 rectboxcenter = vec3(0.0f);
+    vec3 rectboxvar = vec3(0.0f);
+    float rectboxweight = 0.0f;
+    vec2 srcpos = vec2(InputPos) + vec2(0.5f);
+
+    kernelbias = min(kernelbias, 1.0f);
+    kernelbias *= 0.5f;
+    float kernelbias2 = kernelbias * kernelbias;
+    vec2 srcpos_srcOutputPos = srcpos - Hruv * renderSizeF;
+    vec3 rectboxmin;
+    vec3 rectboxmax;
+
+    vec3 topMid = fetchColor(InputPos + ivec2(0, 1)).xyz;
+    {
+        vec3 samplecolor = topMid;
+        vec2 baseoffset = srcpos_srcOutputPos + vec2(0.0f, 1.0f);
+        float baseoffset_dot = dot(baseoffset, baseoffset);
+        float base = clamp(baseoffset_dot * kernelbias2, 0.0f, 1.0f);
+        float weight = FastLanczos(base);
+        Upsampledcw += vec4(samplecolor * weight, weight);
+        float boxweight = exp(baseoffset_dot * curvebias);
+        rectboxmin = samplecolor;
+        rectboxmax = samplecolor;
+        vec3 wsample = samplecolor * boxweight;
+        rectboxcenter += wsample;
+        rectboxvar += (samplecolor * wsample);
+        rectboxweight += boxweight;
+    }
+    vec3 rightMid = fetchColor(InputPos + ivec2(1, 0)).xyz;
+    {
+        vec3 samplecolor = rightMid;
+        vec2 baseoffset = srcpos_srcOutputPos + vec2(1.0f, 0.0f);
+        float baseoffset_dot = dot(baseoffset, baseoffset);
+        float base = clamp(baseoffset_dot * kernelbias2, 0.0f, 1.0f);
+        float weight = FastLanczos(base);
+        Upsampledcw += vec4(samplecolor * weight, weight);
+        float boxweight = exp(baseoffset_dot * curvebias);
+        rectboxmin = min(rectboxmin, samplecolor);
+        rectboxmax = max(rectboxmax, samplecolor);
+        vec3 wsample = samplecolor * boxweight;
+        rectboxcenter += wsample;
+        rectboxvar += (samplecolor * wsample);
+        rectboxweight += boxweight;
+    }
+    vec3 leftMid = fetchColor(InputPos + ivec2(-1, 0)).xyz;
+    {
+        vec3 samplecolor = leftMid;
+        vec2 baseoffset = srcpos_srcOutputPos + vec2(-1.0f, 0.0f);
+        float baseoffset_dot = dot(baseoffset, baseoffset);
+        float base = clamp(baseoffset_dot * kernelbias2, 0.0f, 1.0f);
+        float weight = FastLanczos(base);
+        Upsampledcw += vec4(samplecolor * weight, weight);
+        float boxweight = exp(baseoffset_dot * curvebias);
+        rectboxmin = min(rectboxmin, samplecolor);
+        rectboxmax = max(rectboxmax, samplecolor);
+        vec3 wsample = samplecolor * boxweight;
+        rectboxcenter += wsample;
+        rectboxvar += (samplecolor * wsample);
+        rectboxweight += boxweight;
+    }
+    vec3 centerMid = currCenter;
+    {
+        vec3 samplecolor = centerMid;
+        vec2 baseoffset = srcpos_srcOutputPos;
+        float baseoffset_dot = dot(baseoffset, baseoffset);
+        float base = clamp(baseoffset_dot * kernelbias2, 0.0f, 1.0f);
+        float weight = FastLanczos(base);
+        Upsampledcw += vec4(samplecolor * weight, weight);
+        float boxweight = exp(baseoffset_dot * curvebias);
+        rectboxmin = min(rectboxmin, samplecolor);
+        rectboxmax = max(rectboxmax, samplecolor);
+        vec3 wsample = samplecolor * boxweight;
+        rectboxcenter += wsample;
+        rectboxvar += (samplecolor * wsample);
+        rectboxweight += boxweight;
+    }
+    vec3 btmMid = fetchColor(InputPos + ivec2(0, -1)).xyz;
+    {
+        vec3 samplecolor = btmMid;
+        vec2 baseoffset = srcpos_srcOutputPos + vec2(0.0f, -1.0f);
+        float baseoffset_dot = dot(baseoffset, baseoffset);
+        float base = clamp(baseoffset_dot * kernelbias2, 0.0f, 1.0f);
+        float weight = FastLanczos(base);
+        Upsampledcw += vec4(samplecolor * weight, weight);
+        float boxweight = exp(baseoffset_dot * curvebias);
+        rectboxmin = min(rectboxmin, samplecolor);
+        rectboxmax = max(rectboxmax, samplecolor);
+        vec3 wsample = samplecolor * boxweight;
+        rectboxcenter += wsample;
+        rectboxvar += (samplecolor * wsample);
+        rectboxweight += boxweight;
+    }
+    // Full 9-tap corner samples for higher spatial & temporal fidelity
+    {
+        const ivec2 corners[4] = ivec2[4](ivec2(1, 1), ivec2(-1, 1), ivec2(1, -1), ivec2(-1, -1));
+        for (int i = 0; i < 4; i++) {
+            vec3 samplecolor = fetchColor(InputPos + corners[i]).xyz;
+            vec2 baseoffset = srcpos_srcOutputPos + vec2(corners[i]);
+            float baseoffset_dot = dot(baseoffset, baseoffset);
+            float base = clamp(baseoffset_dot * kernelbias2, 0.0f, 1.0f);
+            float weight = FastLanczos(base);
+            Upsampledcw += vec4(samplecolor * weight, weight);
+            float boxweight = exp(baseoffset_dot * curvebias);
+            rectboxmin = min(rectboxmin, samplecolor);
+            rectboxmax = max(rectboxmax, samplecolor);
+            vec3 wsample = samplecolor * boxweight;
+            rectboxcenter += wsample;
+            rectboxvar += (samplecolor * wsample);
+            rectboxweight += boxweight;
+        }
+    }
+
+    rectboxweight = 1.0f / max(rectboxweight, 1e-6f);
+    rectboxcenter *= rectboxweight;
+    rectboxvar *= rectboxweight;
+    rectboxvar = sqrt(abs(rectboxvar - rectboxcenter * rectboxcenter));
+
+    Upsampledcw.xyz = clamp(Upsampledcw.xyz / max(Upsampledcw.w, 1e-6f), rectboxmin - vec3(0.075f), rectboxmax + vec3(0.075f));
+    Upsampledcw.w = Upsampledcw.w * (1.0f / 3.0f);
+
+    float baseupdate = 1.0f - depthfactor;
+    baseupdate = min(baseupdate, mix(baseupdate, Upsampledcw.w * 10.0f, clamp(10.0f * motion_viewport_len, 0.0f, 1.0f)));
+    baseupdate = min(baseupdate, mix(baseupdate, Upsampledcw.w, clamp(motion_viewport_len * 0.05f, 0.0f, 1.0f)));
+    float basealpha = baseupdate;
+
+    const float EPSILON = 1.192e-07f;
+    float boxscale = max(depthfactor, clamp(motion_viewport_len * 0.05f, 0.0f, 1.0f));
+    float boxsize = mix(scalefactor, 1.0f, boxscale);
+    vec3 sboxvar = rectboxvar * boxsize;
+    vec3 boxmin = rectboxcenter - sboxvar;
+    vec3 boxmax = rectboxcenter + sboxvar;
+    rectboxmax = min(rectboxmax, boxmax);
+    rectboxmin = max(rectboxmin, boxmin);
+
+    vec3 clampedcolor = clamp(HistoryColor, rectboxmin, rectboxmax);
+    float startLerpValue = 0.1f;
+    if ((abs(mda.x) + abs(mda.y)) > 0.000001f) startLerpValue = 0.0f;
+    float lerpcontribution = (any(greaterThan(rectboxmin, HistoryColor)) || any(greaterThan(HistoryColor, rectboxmax))) ? startLerpValue : 1.0f;
+
+    HistoryColor = mix(clampedcolor, HistoryColor, clamp(lerpcontribution, 0.0f, 1.0f));
+    float basemin = min(basealpha, 0.1f);
+    basealpha = mix(basemin, basealpha, clamp(lerpcontribution, 0.0f, 1.0f));
+
+    float alphasum = max(EPSILON, basealpha + Upsampledcw.w);
+    float alpha = clamp(Upsampledcw.w / alphasum + float(p.reset), 0.0f, 1.0f);
+
+    vec3 finalRgb = mix(HistoryColor, Upsampledcw.xyz, alpha);
+    float finalAlpha = textureLod(InputColor, Jitteruv, 0.0f).a;
+    imageStore(OutputImage, at, vec4(finalRgb, finalAlpha));
+}

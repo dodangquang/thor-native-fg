@@ -35,7 +35,7 @@ layout(push_constant) uniform Params { ivec2 outputSize; } p;
 [IO.File]::WriteAllText("$build/generated/upscale.comp",$prefix+"`n"+$shader,[Text.UTF8Encoding]::new($false))
 & "$root/scripts/prepare-neural-shaders.ps1" -Destination "$build/generated"
 $header='#pragma once' + "`n#include <cstdint>`n"
-foreach($name in @('analyze','quality','flow','flow_reference','interpolate','upscale','scene','neural0','neural1','neural2','neural3','neural4','neural5')){
+foreach($name in @('analyze','quality','flow','flow_reference','interpolate','upscale','sgsr2','scene','neural0','neural1','neural2','neural3','neural4','neural5')){
  $src=if($name -eq 'neural5'){"$root/shaders/neural_resize.comp"}elseif($name -eq 'neural4'){"$root/shaders/neural_shuffle.comp"}elseif($name -eq 'upscale' -or $name -match '^neural[0-3]$'){"$build/generated/$name.comp"}elseif($name -eq 'flow_reference'){"$root/tests/reference/flow_serial.comp"}else{"$root/shaders/$name.comp"}
  & "$shaderBin/glslc.exe" --target-env=vulkan1.1 -I "$root/shaders" -O $src -o "$build/$name.spv";Check "glslc $name"
  & "$shaderBin/spirv-val.exe" --target-env vulkan1.1 "$build/$name.spv";Check "spirv-val $name"
@@ -73,12 +73,13 @@ $runtimeHash=(Get-FileHash -LiteralPath "$build/lib/arm64-v8a/libVkLayer_ThorFG.
 $runtimePackage="com.thor.nativefg.runtime.v$runtimeHash"
 New-Item -ItemType Directory -Force -Path "$build/runtime/lib/arm64-v8a","$build/assets","$build/generated/java/com/thor/nativefg" | Out-Null
 foreach($assets in @("$build/runtime/assets","$build/assets")){
- New-Item -ItemType Directory -Force -Path "$assets/legal/Anime4K","$assets/legal/SGSR1" | Out-Null
+ New-Item -ItemType Directory -Force -Path "$assets/legal/Anime4K","$assets/legal/SGSR1","$assets/legal/SGSR2" | Out-Null
  Copy-Item -LiteralPath "$root/third_party/anime4k/LICENSE.txt","$root/third_party/anime4k/Anime4K_Upscale_CNN_x2_S.glsl","$root/shaders/neural_shuffle.comp","$root/shaders/neural_resize.comp","$root/shaders/neural_bounds.glsl" -Destination "$assets/legal/Anime4K" -Force
  Copy-Item -LiteralPath "$root/third_party/Snapdragon-GSR-LICENSE.txt","$root/third_party/sgsr1_shader_mobile.frag" -Destination "$assets/legal/SGSR1" -Force
+ Copy-Item -LiteralPath "$root/third_party/sgsr2/LICENSE","$root/third_party/sgsr2/PINNED.txt","$root/third_party/sgsr2/sgsr2_convert.fs","$root/third_party/sgsr2/sgsr2_upscale.fs","$root/shaders/sgsr2.comp" -Destination "$assets/legal/SGSR2" -Force
 }
 Copy-Item -LiteralPath "$build/lib/arm64-v8a/libVkLayer_ThorFG.so" -Destination "$build/runtime/lib/arm64-v8a/libVkLayer_ThorFG.so" -Force
-$runtimeManifest='<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="'+$runtimePackage+'" android:versionCode="1" android:versionName="1"><uses-sdk android:minSdkVersion="29" android:targetSdkVersion="33"/><application android:label="Thor Native FG Runtime" android:hasCode="false" android:allowBackup="false" android:extractNativeLibs="true"/></manifest>'
+$runtimeManifest='<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="'+$runtimePackage+'" android:versionCode="1" android:versionName="1" android:forceQueryable="true"><uses-sdk android:minSdkVersion="29" android:targetSdkVersion="33"/><application android:label="Thor Native FG Runtime" android:hasCode="false" android:allowBackup="false" android:extractNativeLibs="true"/></manifest>'
 [IO.File]::WriteAllText("$build/runtime/AndroidManifest.xml",$runtimeManifest,[Text.UTF8Encoding]::new($false))
 $key="$build/thor-native-development.jks"
 if(-not(Test-Path -LiteralPath $key)){& "$jdk/bin/keytool.exe" -genkeypair -keystore $key -storepass android -keypass android -alias thor -dname 'CN=Thor Native Development' -keyalg RSA -keysize 2048 -validity 3650;Check 'keytool'}

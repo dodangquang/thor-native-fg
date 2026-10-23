@@ -16,7 +16,7 @@ public class FpsOverlayService extends Service {
     private static final String CHANNEL="thor-fps";
     private final Handler main=new Handler(Looper.getMainLooper());
     private WindowManager windows;private WindowManager.LayoutParams position;private TextView hud;
-    private volatile boolean stopped=false,active=false;private volatile String target="",error="";
+    private volatile boolean stopped=false,active=false;private volatile String target="",error="",externalSr="";
     private volatile boolean automatic=false;
     private volatile long configAt=0;private boolean attached=false;
     private volatile int targetPid=0;private volatile RuntimeMetrics metrics;
@@ -34,7 +34,7 @@ public class FpsOverlayService extends Service {
             .setContentIntent(open).addAction(new Notification.Action.Builder(null,"Ẩn ô FPS",hide).build()).setOngoing(true).build();
         startForeground(41,notification);
         windows=(WindowManager)getSystemService(WINDOW_SERVICE);hud=new TextView(this);hud.setTextColor(Color.rgb(199,255,235));hud.setTextSize(11);
-        hud.setPadding(dp(7),dp(4),dp(7),dp(4));hud.setMaxWidth(dp(220));hud.setSingleLine(true);
+        hud.setPadding(dp(7),dp(4),dp(7),dp(4));hud.setMaxWidth(dp(440));hud.setSingleLine(true);
         GradientDrawable background=new GradientDrawable();background.setColor(0xCC10191F);background.setCornerRadius(dp(7));hud.setBackground(background);
         position=new WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,PixelFormat.TRANSLUCENT);
@@ -59,18 +59,21 @@ public class FpsOverlayService extends Service {
     }
     private void readConfig(String line){
         try{
-            String selected="",pidText="0",on="",auto="";
+            String selected="",pidText="0",on="",auto="",sgsr2="";
             for(String token:line.substring(12).trim().split("\\s+")){
                 if(token.startsWith("target="))selected=token.substring(7);
                 else if(token.startsWith("pid="))pidText=token.substring(4);
                 else if(token.startsWith("active="))on=token.substring(7);
                 else if(token.startsWith("auto="))auto=token.substring(5);
+                else if(token.startsWith("sgsr2="))sgsr2=token.substring(6);
             }
             if(!selected.isEmpty()&&!selected.matches("[A-Za-z0-9_.]+"))return;
             int pid=pidText.matches("[0-9]+")?Integer.parseInt(pidText):0;
             if("1".equals(auto)&&pid>0&&!selected.isEmpty()&&!selected.equals(getPreferences().getString("auto_last_package","")))getPreferences().edit().putString("auto_last_package",selected).apply();
             if(!selected.equals(target)||pid!=targetPid)metrics=null;
-            target=selected;targetPid=pid;active="1".equals(on);automatic="1".equals(auto);error="";configAt=SystemClock.elapsedRealtime();
+            target=selected;targetPid=pid;active="1".equals(on);automatic="1".equals(auto);
+            externalSr=sgsr2.matches("[0-9]+x[0-9]+->[0-9]+x[0-9]+")?"SGSR2 "+sgsr2.replace("x","×").replace("->","→"):"";
+            error="";configAt=SystemClock.elapsedRealtime();
         }catch(RuntimeException invalid){/* Ignore incomplete monitor output. */}
     }
     private void readLogs(){
@@ -84,7 +87,9 @@ public class FpsOverlayService extends Service {
                 " case \"$game_target\" in ''|null|*[!A-Za-z0-9_.]*) game_target='';; *) if "+AutoMode.allowedScript()+"; then game_active=1; else game_target=''; fi;; esac\n fi\n"+
                 " case \"$game_target\" in ''|null|*[!A-Za-z0-9_.]*) game_target='';; esac\n"+
                 " game_pid=0\n if [ \"$game_active\" = 1 ] && [ -n \"$game_target\" ]; then game_pid=$(pidof -s \"$game_target\"); fi\n"+
-                " printf 'THOR_CONFIG target=%s active=%s pid=%s auto=%s\\n' \"$game_target\" \"$game_active\" \"$game_pid\" \"$auto_mode\"\n sleep 2\n done ) &\npoll_pid=$!\n"+
+                " sgsr2_info=''\n if [ \"$game_target\" = com.droiddeck.launcher ] && [ -n \"$game_pid\" ] && [ \"$game_pid\" != 0 ] && pgrep -u 10201 -f '\\.exe' >/dev/null 2>&1; then\n"+
+                "  sgsr2_info=$(grep -h 'Initializing.*SGSR2 ' /data/user/0/com.droiddeck.launcher/files/linuxfs/root/.local/share/Steam/steamapps/common/*/LittleFoxSim_v1/Binaries/Win64/OptiScaler-Thor-GSR2.log /data/user/0/com.droiddeck.launcher/files/linuxfs/root/.local/share/Steam/steamapps/common/*/*/OptiScaler-Thor-GSR2.log /data/user/0/com.droiddeck.launcher/files/linuxfs/root/.local/share/Steam/steamapps/common/*/OptiScaler-Thor-GSR2.log 2>/dev/null | tail -n 1 | awk '{for(i=1;i<=NF;i++) if($i==\"SGSR2\") {print $(i+1)\"->\"$(i+3); break}}')\n fi\n"+
+                " printf 'THOR_CONFIG target=%s active=%s pid=%s auto=%s sgsr2=%s\\n' \"$game_target\" \"$game_active\" \"$game_pid\" \"$auto_mode\" \"$sgsr2_info\"\n sleep 2\n done ) &\npoll_pid=$!\n"+
                 "trap 'kill \"$log_pid\" \"$poll_pid\" 2>/dev/null' EXIT HUP INT TERM\nIFS= read -r stop_command\n";
             java.lang.Process process=new ProcessBuilder("su","-c",monitor).redirectErrorStream(true).start();logProcess=process;
             if(stopped){process.getOutputStream().close();return;}
@@ -102,11 +107,11 @@ public class FpsOverlayService extends Service {
         // window still enters WindowManager/accessibility/display bookkeeping.
         long now=SystemClock.elapsedRealtime();
         showWindow(configAt>0&&now-configAt<5000&&(!automatic||(active&&targetPid>0)));
-        if(!error.isEmpty())hud.setText("Gốc — | FG —");
-        else if(!active)hud.setText("Gốc — | FG TẮT");
-        else if(targetPid==0)hud.setText("Gốc — | FG —");
-        else if(value==null||!value.fresh(SystemClock.elapsedRealtime()))hud.setText("Gốc — | FG —");
-        else hud.setText(value.hud());
+        if(!error.isEmpty())hud.setText("Gốc — | FG — | SR —");
+        else if(!active)hud.setText("Gốc — | FG TẮT | SR TẮT");
+        else if(targetPid==0)hud.setText("Gốc — | FG — | SR —");
+        else if(value==null||!value.fresh(SystemClock.elapsedRealtime()))hud.setText("Gốc — | FG — | SR —");
+        else hud.setText(value.hud(externalSr));
         main.postDelayed(this,500);
     }};
     @Override public int onStartCommand(Intent intent,int flags,int id){if(intent!=null&&"HIDE".equals(intent.getAction())){getPreferences().edit().putBoolean("hud_visible",false).apply();stopSelf();return START_NOT_STICKY;}if(hud==null){stopSelf();return START_NOT_STICKY;}return START_STICKY;}

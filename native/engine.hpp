@@ -8,11 +8,11 @@ struct Pipeline {VkPipeline pipeline{};VkPipelineLayout layout{};VkDescriptorSet
 // Seven optional timestamps delimit six input stages. The owner resets the
 // query range and waits for this submission before reading it.
 struct EngineTimings {VkQueryPool pool{};uint32_t first=0;};
-enum class SpatialModel:uint32_t {Sgsr1=0,Neural2D=1,NeuralBounded=2};
-inline const char* spatialModelName(SpatialModel model){return model==SpatialModel::NeuralBounded?"Anime4K_CNN_S_bounded":model==SpatialModel::Neural2D?"Anime4K_CNN_S":"SGSR1";}
+enum class SpatialModel:uint32_t {Sgsr1=0,Neural2D=1,NeuralBounded=2,Sgsr2=3};
+inline const char* spatialModelName(SpatialModel model){return model==SpatialModel::Sgsr2?"SGSR2":model==SpatialModel::NeuralBounded?"Anime4K_CNN_S_bounded":model==SpatialModel::Neural2D?"Anime4K_CNN_S":"SGSR1";}
 struct Engine {
  Api* a{};VkPhysicalDeviceMemoryProperties memory{};VkExtent2D input{},output{},grid{};
- Image history[2],flow,mid,upCurrent,upMid;
+ Image history[2],flow,mid,upCurrent,upMid,sgsr2History[2];
  VkBuffer stats{};VkDeviceMemory statsMemory{};void* statsMapped{};VkSampler sampler{},nearestSampler{};
  VkDescriptorPool descriptors{};Pipeline analyzePipe,qualityPipe,flowPipe,flowReferencePipe,interpolatePipe,upscalePipe;
  VkDescriptorSet analyzeSets[2]{},qualitySet{};
@@ -20,6 +20,7 @@ struct Engine {
  bool initialized=false,hasHistory=false,cooperativeFlow=true;int write=0;
  SpatialModel spatialModel=SpatialModel::Sgsr1;
  Image neuralFeatures[2],neural2x;Pipeline neuralPipes[6];VkDescriptorSet neuralSets[6]{};
+ VkImage spatialOutput()const{return spatialModel==SpatialModel::Sgsr2?sgsr2History[1-write].image:upCurrent.image;}
  uint32_t memoryType(uint32_t bits,VkMemoryPropertyFlags flags);
  Image createImage(VkExtent2D size,VkFormat format,VkImageUsageFlags usage);
  Pipeline createPipeline(const uint32_t* code,size_t bytes,const std::vector<VkDescriptorType>& bindings,uint32_t pushBytes);

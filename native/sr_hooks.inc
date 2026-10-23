@@ -87,16 +87,18 @@ static bool srReplace(Device& d,VkCommandBuffer cmd,VkImage src,VkImageLayout sr
  try{
   size_t slot=command.next;
   if(command.engines.size()<=slot)command.engines.resize(slot+1);
-  auto& engine=command.engines[slot];VkExtent2D input{uint32_t(width),uint32_t(height)};
-  char modelProperty[PROP_VALUE_MAX]{};__system_property_get("persist.thorfg.sr_model",modelProperty);SpatialModel model=!std::strcmp(modelProperty,"neural2d")?SpatialModel::NeuralBounded:SpatialModel::Sgsr1;
+  VkExtent2D input{uint32_t(width),uint32_t(height)};
+  char modelProperty[PROP_VALUE_MAX]{};__system_property_get("persist.thorfg.sr_model",modelProperty);
+  SpatialModel model=!std::strcmp(modelProperty,"neural2d")?SpatialModel::NeuralBounded:(!std::strcmp(modelProperty,"sgsr1")?SpatialModel::Sgsr1:SpatialModel::Sgsr2);
+  auto& engine=model==SpatialModel::Sgsr2?swap->srEngine:command.engines[slot];
   if(!engine||engine->spatialModel!=model||engine->input.width!=input.width||engine->input.height!=input.height||engine->output.width!=swap->extent.width||engine->output.height!=swap->extent.height){
    auto replacement=std::make_unique<Engine>();replacement->initSpatial(d.a,d.memory,input,swap->extent,model);engine=std::move(replacement);
-   LOG("SR_PIPELINE input=%ux%u output=%ux%u source=application_blit algorithm=%s (single-image SR, not temporal DLSS)",input.width,input.height,swap->extent.width,swap->extent.height,spatialModelName(model));
+   LOG("SR_PIPELINE input=%ux%u output=%ux%u source=application_blit algorithm=%s",input.width,input.height,swap->extent.width,swap->extent.height,spatialModelName(model));
   }
   command.hits.push_back({swap,index,input,model});command.next++;
   engine->recordSpatial(cmd,src,srcLayout,region);
   VkImageBlit output=region;output.srcSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};output.srcOffsets[0]={0,0,0};output.srcOffsets[1]={int32_t(swap->extent.width),int32_t(swap->extent.height),1};
-  d.a.CmdBlitImage(cmd,engine->upCurrent.image,VK_IMAGE_LAYOUT_GENERAL,dst,dstLayout,1,&output,VK_FILTER_NEAREST);
+  d.a.CmdBlitImage(cmd,engine->spatialOutput(),VK_IMAGE_LAYOUT_GENERAL,dst,dstLayout,1,&output,VK_FILTER_NEAREST);
   srRestore(d,cmd,command);return true;
  }catch(const std::exception& error){command.blocked=true;LOG("SR_FALLBACK %s",error.what());return false;}
 }

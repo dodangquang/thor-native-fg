@@ -11,15 +11,21 @@ import java.security.MessageDigest;
 final class RuntimeProvider {
     static synchronized String ensure(Context context)throws Exception {
         PackageManager pm=context.getPackageManager();
+        android.content.SharedPreferences prefs=context.getSharedPreferences("thor",Context.MODE_PRIVATE);
+        String queryKey="queryable_"+RuntimeBuild.SHA256;
         ApplicationInfo provider=null;
-        try{provider=pm.getApplicationInfo(RuntimeBuild.PACKAGE,0);}catch(PackageManager.NameNotFoundException missing){
+        if(prefs.getBoolean(queryKey,false)){
+            try{provider=pm.getApplicationInfo(RuntimeBuild.PACKAGE,0);}catch(PackageManager.NameNotFoundException ignored){}
+        }
+        if(provider==null){
             File apk=new File(context.getCacheDir(),"thor-runtime.apk");
             try(InputStream input=context.getAssets().open("thor-runtime.apk");FileOutputStream output=new FileOutputStream(apk)){
                 byte[] buffer=new byte[32768];int n;while((n=input.read(buffer))!=-1)output.write(buffer,0,n);output.getFD().sync();
             }
             String staged="/data/local/tmp/thor-native-fg-runtime-"+RuntimeBuild.SHA256+".apk";
             try{
-                RootShell.run("set -e\ntrap 'rm -f "+staged+"' EXIT\ncp "+RootShell.quote(apk.getAbsolutePath())+" "+staged+"\nchmod 644 "+staged+"\npm install --force-queryable "+staged);
+                RootShell.run("set -e\ntrap 'rm -f "+staged+"' EXIT\ncp "+RootShell.quote(apk.getAbsolutePath())+" "+staged+"\nchmod 644 "+staged+"\npm install -r --force-queryable "+staged);
+                prefs.edit().putBoolean(queryKey,true).apply();
             }finally{apk.delete();}
             provider=pm.getApplicationInfo(RuntimeBuild.PACKAGE,0);
         }

@@ -1,0 +1,57 @@
+CURRENT USER GOAL, 2026-10-23
+Usable GSR2 for Eden and DroidDeck. Supersedes all-emulator/DLSS product scope.
+
+Completed this continuation:
+- Eden source-side low-resolution compositor provider compiled and APK assembled.
+  Separate test package installed; original paused Nightly PID20692 survived.
+  No test game launch, keys/save/prefs copy, current save backup or restore yet.
+  This provider is SPATIAL ONLY. New math helper passed137 geometry checks on
+  Thor. All reproduction/patch/provenance is integrations/eden.
+- Found real GSR2 ARM64EC Proton integration in justradical/Sloptiscaler.
+  Pinned source and verified release archive on E. Isolated explicit-GSR2 test
+  bundle built, no installed game touched. integrations/droiddeck documents it.
+- DroidDeck installed0.5.0, runtime r9, idle; agent commands disabled. Do not
+  silently bypass an explicit app debug setting. Root ADB read-only inventory
+  was used. Cached Steam IDs include1086940(BG3),292030(Witcher3),1091500(CP2077).
+  Cache is not a full verified ownership list. Filename scan found no matching
+  temporal-upscaler DLL in current steamapps/common (static APIs possible).
+- User offered to download a light suitable game. Asked them in commentary to
+  download Foxtale Demo app3448970 (free, officialDLSS mention,2GB disk space;
+  actual download size unknown). Actual Thor/Proton/API compatibility untested.
+  Do not mistake the recommendation for a verified working GSR2 game.
+
+Next work:
+1. First Foxtale Demo launch proved NVSDK_NGX_D3D11_CreateFeature / EvaluateFeature
+   interception works on Wine 11.0 / Turnip Adreno 740, SGSR2_Dx11on12 initialized
+   (682x384 -> 1024x576), and all 6 shared D3D11->D3D12 textures succeeded, failing
+   only on ID3D11Fence::CreateSharedHandle returning 0.
+2. Rebuilt ARM64EC OptiScaler.dll from source using integrations/droiddeck/build-arm64ec-windows.py:
+   - Intermediate build (SHA256 832870492792d5fc1d74fb81fe3c7f63127235b06aeb52e5f7fd98305c54f5b9)
+     with Dx11WithDx12 local fence fallback + Kettle Linux SGSR2 patches ran SGSR2
+     every frame at 853x480 -> 1280x720 in Foxtale Demo (research/OptiScaler-Thor-GSR2-patched.log),
+     but live screenshot (research/foxtale_sgsr2_live.png) revealed vertical tiled stripe
+     corruption caused by DXVK vs vkd3d-proton UBWC tiling mismatch on D3D11On12 shared handles.
+   - Final build (SHA256 8832d615be41375ab85f5c1c7a122f2924fc71559cf47966a4704f14d781c4ff)
+     executes SGSR2 2-pass cs_5_0 compute shaders natively on the game's ID3D11DeviceContext
+     (DXVK) with direct SRV/UAV binding (copy=false) and zero vkd3d-proton shared handles.
+   - Verified live on AYN Thor in Foxtale Demo (research/OptiScaler-Thor-GSR2-dx11native.log,
+     research/foxtale_sgsr2_dx11native.png, research/foxtale_menu_fg.png,
+     research/foxtale_gameplay_sgsr2_fg014.png): stripe-free 3D reconstruction (853x480 ->
+     1280x720) + ThorNativeFG 0.14-rc1 (59.32-60.36 -> 117.86-118.89 FPS in 3D menu,
+     14.26-16.72 -> 30.48-33.25 FPS in heavy UE5 outdoor gameplay).
+3. Verified Eden isolated package (dev.eden.eden_emulator.relWithDebInfo) in Super Mario Odyssey:
+   - Probe v3 capture (token=18, research/eden-mario-probe-18-summary.json) completed 3 snapshots
+     with overflow_draws=0, parsed_complete=True, direct_final_matches=1 (1600x900 final color
+     + 640x720 D32_FLOAT 5-color MRT pass with 849 draws).
+   - THOR_LOW_COMPOSITE (1280x720 -> 1920x1080) + ThorNativeLayer 0.14-rc1 (sr=1, sa=2 bounded
+     Neural 2D SR + Frame Gen) verified live in 3D title/menu (59.93 -> 118.89 FPS) and 3D Cap
+     Kingdom gameplay (49.04 -> 96.68 FPS with presenter=fence).
+   - Existing guest render targets still require per-game shader/projection integration for true
+     temporal GSR2 in Eden; THOR_LOW_COMPOSITE provides spatial/neural low-res -> 1080p SR today.
+
+Critical preservation:
+Old save archives predate human play and are STALE. Never restore them.
+Original Nightly remains paused with user progress; do not blindly kill it.
+Thor manual/automatic/SR flags were0 at final verification. Keep auto off.
+No active build sessions remain:70200 native and50481 APK both exit0.
+Research clone sessions2318 and85765 both exit0.
