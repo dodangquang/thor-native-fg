@@ -39,8 +39,19 @@ The requested equivalent function/quality remains the target; names and claims
 must accurately distinguish neural/temporal/spatial SR and measured results.
 
 Current verified baseline and gaps:
-- Version0.10 is installed with an optional Anime4K CNN S spatial path and
-  truthful per-submitted-image algorithm telemetry. The user's new automatic-OFF
+- Version0.11 adds a recoverable DroidDeck0.5.0 preset for the three settings
+  that obstruct Thor's SR path, with stopped-UID/hash guards and selective
+  conflict-aware undo. Sixteen Java checks plus actual-device apply/undo,
+  idempotence and live-game refusal passed. The user's automatic-OFF preference
+  remains; the preset was undone after testing. In Castlevania on custom Turnip,
+  actual neural SR1024x576->1920x1080 and independent FG ran together. Short
+  title-menu samples measured59.26->116.86FPS neural+FG,58.44->116.89GSR1+FG,
+  59.43->59.44neural-only and57.52->116.87after recovery. Intro was around
+  26->49with uneven gaps. These do not establish native-reference quality,
+  sustained benefit or input latency. Both save-file hashes were unchanged.
+  Updating the controller kept the game's PID and immutable runtime path.
+- Version0.10 introduced the optional Anime4K CNN S spatial path retained in0.11
+  and truthful per-submitted-image algorithm telemetry. The user's automatic-OFF
   preference was preserved; neural is unselected/GSR1 selected. Twelve small
   GPU cases pass independent CPU matrix/crop/alpha/resize references with sync
   validation;27existing FG/SR checks and24HUD checks also pass. A scoped debug

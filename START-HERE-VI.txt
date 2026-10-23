@@ -1,10 +1,26 @@
-THOR NATIVE FG 0.10 — BẢN THỬ NGHIỆM ĐỘC LẬP
+THOR NATIVE FG 0.11 — BẢN THỬ NGHIỆM ĐỘC LẬP
 
-Máy đã cài bản 0.10. APK trên ổ E: ThorNativeFG-v0.10-experimental.apk;
-ThorNativeFG-debug.apk cùng bản này. Bản 0.9 vẫn giữ để phục hồi.
+Máy đã cài bản 0.11. APK trên ổ E: ThorNativeFG-v0.11-experimental.apk;
+ThorNativeFG-debug.apk cùng bản này. Bản0.10/0.9 vẫn giữ để phục hồi.
 Hiện công tắc tự động đang TẮT theo lựa chọn mới quan sát trên máy; cập nhật
 giữ nguyên lựa chọn đó. SR/GSR1 được chọn, neural đang bỏ chọn. Không có FG
 tự động hoạt động chỉ vì đã cài APK. Xem STATUS-VI.txt để biết bằng chứng.
+
+DROIDDECK0.5.0 — DÙNG SR VÀ FG CỦA THOR
+1. Lưu game, thoát hẳn DroidDeck. Trong Thor bấm 'DroidDeck · dùng đường SR
+   của Thor'. App sao lưu và đổi linear/hiệu ứng trung hòa/FG tích hợp off.
+   Nếu DroidDeck còn chạy, app từ chối sửa; không tự đóng game.
+2. Chọn GSR1 hoặc neural thử nghiệm. Đặt độ phân giải thấp trong game khi cần;
+   preset không tự đổi độ phân giải. Bật FG thủ công cho DroidDeck, hoặc bật
+   công tắc tự động nếu muốn, rồi mở game từ launcher như thường.
+3. Đọc trạng thái để xác nhận SR thực sự ON. Đã thử Castlevania1024x576->1080p
+   neural+FG qua Turnip: menu~59->117FPS; intro còn khựng. Không phải cam kết
+   cho mọi game hoặc chất lượng DLSS. Ô nhỏ vẫn chỉ Gốc | FG.
+4. Muốn trả cấu hình DroidDeck: thoát hẳn rồi bấm 'hoàn tác preset SR'. Chỉ
+   trả3mục đã đổi; giữ các cài đặt khác mới thay. Nếu bạn đã tự đổi một trong
+   3mục, app báo xung đột và giữ cấu hình mới. Preset và công tắc FG là hai
+   thao tác riêng; hoàn tác preset không tắt FG Thor. Nút 'Tắt layer' tắt FG.
+Preset đã hoàn tác sau kiểm thử; cấu hình DroidDeck hiện là cấu hình của bạn.
 
 Lựa chọn mới: 'Neural SR cho nét vẽ / game 2D (thử nghiệm)'. Bỏ chọn để dùng
 GSR1. Neural dùng Anime4K CNN S, tái tạo 2x rồi resize khi cần; alpha được
@@ -13,8 +29,8 @@ lấy từ ảnh gốc. Chưa chứng minh chất lượng neural cho mọi game
 lần đóng/mở app; giá trị được lưu bằng thuộc tính persist của Android.
 Phần đọc trạng thái báo 'Neural 2D ON' chỉ khi khung hình có pass neural thật.
 Ô FPS vẫn chỉ có Gốc | FG. Việc chọn neural không tự thay cài đặt giả lập.
-Trong QA, neural SR và FG chạy cùng nhau từ nguồn khoảng30FPS ra khoảng60FPS;
-chưa dùng số này làm benchmark game hoặc khẳng định chất lượng DLSS.
+Đã xác nhận neural và FG cùng chạy trong game nói trên, nhưng chưa so chất
+lượng với ảnh native hoặc chứng minh tương thích mọi game/temporal DLSS.
 
 Bản 0.9 giảm chi phí optical flow, giữ nguyên thuật toán. Trong title menu
 Castlevania trên DroidDeck: GPU input FG khoảng 2 ms thay vì 7 ms; hai lượt
@@ -25,7 +41,7 @@ Chưa đạt chất lượng/tương thích đầy đủ như DLSS. Bản này g
 và timestamp của 0.7; nguồn gần 119 FPS sẽ không nội suy thêm.
 Phép SR riêng cần ảnh render thấp và đường blit phù hợp. Nếu cấu hình gốc
 DroidDeck đã phóng ảnh lên 1080p trước Thor thì Thor báo chưa upscale;
-không tự đổi cài đặt giả lập. Các số game trên dùng cấu hình đối chứng đã
+chỉ nút preset đổi3mục được mô tả ở trên. Các số game bản0.9 dùng cấu hình đối chứng đã
 tắt effects/upscaler/FG tích hợp, sau đó đã khôi phục cấu hình gốc và save.
 
 Bản0.5 đã sửa lỗi Steam kẹt sau khi cập nhật APK Thor trong lúc DroidDeck đã mở.
@@ -69,7 +85,8 @@ CHẾ ĐỘ THỦ CÔNG / CẢNH MẪU
    tiến trình đã nạp. Không dùng song song với FG khác.
 
 UPSCALE GSR1
-Đánh dấu 'Upscale GSR1 khi game render độ phân giải thấp'. Đặt độ phân giải
+Đánh dấu 'Upscale khi game render độ phân giải thấp'. Bỏ chọn neural để dùng
+GSR1. Đặt độ phân giải
 thấp trong game/giả lập, chẳng hạn960x540 cho màn hình1920x1080. App không tự
 giảm độ phân giải render. Layer thay bước blit phóng ảnh cuối phù hợp bằng GSR1.
 Chỉ hỗ trợ thử nghiệm blit màu toàn màn hình trên Vulkan/queue có compute;

@@ -1,0 +1,36 @@
+DroidDeck SR preset QA (controller0.11)
+
+Run DroidDeckSettingsTest.java with DroidDeckSettings.java on a JDK. Sixteen
+checks cover key/entity/set preservation, absent keys, conflicting owned
+settings, malformed/duplicate/DTD XML, retry and partial-pair recovery. These
+are preference-plan checks; they do not simulate a device power interruption.
+
+On Thor with Magisk30.7, primary-user DroidDeck0.5.0/versionCode14:
+- Take a NEW save/preferences backup after any user gameplay. Never use an old
+  Castlevania archive as a new baseline. Ensure no DroidDeck UID processes.
+- Apply through the controller UI. Compare parsed preferences before/after:
+  only session.upscaler, session.screenEffects and frame_gen.engine may differ.
+  Verify target uid/mode/SELinux category, root-private0700original directory,
+  and600ready marker. The preset must not alter FG auto/manual switches.
+- Apply again: original backup hashes must remain unchanged. Undo: compare all
+  parsed values against the fresh original, including unrelated application
+  paths/driver preferences and FG multiplier/target. XML formatting may differ.
+- With DroidDeck running, apply/undo must refuse. Compare both current file
+  hashes before/after; the app must not force-stop the game. The guard checks
+  all processes under the target uid rather than just the main package name.
+- Launch a low-resolution game with Thor FG manually (or an explicitly selected
+  automatic mode). Require sr=1 and sa=1 for neural/sa=0 for GSR1 in current-PID
+  telemetry, plus valid display timestamps and generated samples. Built-in
+  DroidDeck FG must report off. A checkbox or selected preset is insufficient.
+- Check FG off/recovery and controller update while the immutable runtime is
+  bound. Record frame gaps separately from FPS. This does not replace visual
+  quality/native-reference, thermal, latency or other-emulator verification.
+- Stop only the test session, compare saves and restore the preset/switches
+  from this run's baseline. Leave the user's automatic-OFF choice unchanged.
+
+Device evidence: research/preset-ui-*, preset-device-semantic-tests.txt,
+preset-idempotent-*.txt, preset-guard-*.txt, preset-game-summary.json and
+preset-fresh-save-hashes.txt versus preset-save-after-hashes.txt.
+Two file renames are not atomic as a pair. The root original and pending
+journal are retained if interrupted; selective undo accepts original or preset
+values per owned key, but refuses subsequent conflicting user changes.

@@ -32,7 +32,7 @@ public class MainActivity extends Activity {
         LinearLayout page=new LinearLayout(this);page.setOrientation(1);page.setPadding(36,28,36,24);page.setBackgroundColor(Color.rgb(12,20,33));
         ScrollView scroll=new ScrollView(this);scroll.addView(page);setContentView(scroll);
         TextView title=text("THOR NATIVE FG",26);title.setTextColor(Color.rgb(87,222,212));page.addView(title);
-        page.addView(text("Frame gen + SR độc lập • Bản thử nghiệm 0.10",16));
+        page.addView(text("Frame gen + SR độc lập • Bản thử nghiệm 0.11",16));
         page.addView(text("Không phải NVIDIA DLSS. Chưa xác nhận tương thích mọi giả lập hay tăng FPS thực tế. Layer hỗ trợ thử nghiệm Vulkan FIFO, SDR RGBA/BGRA8; OpenGL ES và driver nạp riêng có thể không đi qua layer.",15));
         page.addView(text("Engine FG thuộc Thor Native FG. Khi thử, tắt FG tích hợp trong giả lập để tránh nội suy hai lần. GSR 1 xử lý ảnh render thấp khi đường hiển thị Vulkan phù hợp; hãy đặt độ phân giải thấp trong game/giả lập. Chỉ báo ON khi có pass upscale được gửi thật.",15));
         button(page,"Chạy cảnh mẫu Vulkan · GSR 1 + FG 2x",()->startActivity(new Intent(this,DemoActivity.class)));
@@ -45,6 +45,9 @@ public class MainActivity extends Activity {
         automatic.setOnCheckedChangeListener((view,checked)->{if(syncingAuto)return;if(busy){syncAutoSwitch();return;}final boolean sr=upscale.isChecked();runJob(()->{String result=AutoMode.configure(this,checked,sr);if(checked)runOnUiThread(()->showOverlay());return result;});});
         button(page,"Chọn game / giả lập tự động",()->editAutoApplications());
         page.addView(text("Tự động nhận diện các giả lập quen thuộc và ứng dụng khai báo là game. Có thể thêm/loại app trong danh sách. Chế độ này cần bootstrap 0.2; ứng dụng đang chạy cần thoát/mở lại một lần. Không tự đóng game.",14));
+        page.addView(text("DroidDeck 0.5.0: lưu game và thoát hẳn trước khi đổi preset. Nút bên dưới chọn linear, trung hòa hiệu ứng màn hình và tắt FG tích hợp để Thor nhận ảnh render thấp. Có bản gốc để hoàn tác; không tự bật FG hay đổi độ phân giải game.",14));
+        button(page,"DroidDeck · dùng đường SR của Thor",()->runJob(()->DroidDeckPreset.change(this,false)));
+        button(page,"DroidDeck · hoàn tác preset SR",()->runJob(()->DroidDeckPreset.change(this,true)));
         page.addView(text("Chọn ứng dụng khi bật thủ công",17));
         packages=new Spinner(this);loadPackages();page.addView(packages);
         button(page,"Bật FG của Thor và mở ứng dụng",()->enableSelected());

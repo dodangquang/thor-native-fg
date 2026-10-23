@@ -1,12 +1,58 @@
-THOR NATIVE FG — NHẬT KÝ KIỂM CHỨNG (CẬP NHẬT 0.10)
+THOR NATIVE FG — NHẬT KÝ KIỂM CHỨNG (CẬP NHẬT 0.11)
 
-HIỆN TẠI: APK 0.10 và runtime50CD... đã cài; bootstrap0.3 giữ nguyên.
+HIỆN TẠI: APK 0.11 và runtime50CD... đã cài; bootstrap0.3 giữ nguyên.
 Người dùng đã tắt tự động trong lúc làm việc; cập nhật giữ auto0, không bật
 lại. Neural đang bỏ chọn, GSR1 là lựa chọn hiện tại; manual enabled0.
-Engine vẫn thử nghiệm, mục tiêu DLSS-like đầy đủ chưa đạt. Các mục0.1–0.9
+Engine vẫn thử nghiệm, mục tiêu DLSS-like đầy đủ chưa đạt. Các mục0.1–0.10
 phía dưới là lịch sử. Xem PRODUCT-REQUIREMENTS.txt để giữ đầy đủ yêu cầu.
 
-CẬP NHẬT 0.10 — NEURAL SR ĐÃ TÍCH HỢP VÀ CHẠY CÙNG FG TRONG QA
+CẬP NHẬT 0.11 — PRESET DROIDDECK CÓ HOÀN TÁC, NEURAL SR TRONG GAME
+- Thêm hai nút dùng đường SR Thor / hoàn tác cho DroidDeck0.5.0(versionCode14),
+  hồ sơ chính. Chỉ đổi3preference: upscaler=linear, screenEffects=neutral và
+  frame_gen.engine=off. Không tự đổi độ phân giải game hoặc bật chế độ tự động.
+  Cấu hình mới của người dùng trước test là upscaler2; không dùng bản cũ4.
+- Bản gốc nằm trong thư mục root0700; ghi file tạm, giữ UID/mode và SELinux
+  category rồi rename từng file. Kiểm UID không còn tiến trình và hash dữ liệu
+  trước khi ghi; từ chối khi DroidDeck đang chạy. Hai rename không phải một
+  giao dịch filesystem nguyên tử: giữ journal/bản gốc khi bị ngắt giữa chừng.
+  Hoàn tác chỉ trả3mục, giữ các mục khác đã đổi sau đó; có xung đột sẽ từ chối.
+  Bấm áp dụng lại không ghi đè bản gốc. Không dùng lock tồn tại qua process chết.
+- Root từ controller ban đầu không nhìn thấy dữ liệu package khác; xác định
+  bằng id/ls trong app. Chỉ preset dùng su mount-master, đã thử với Magisk30.7;
+  không đổi SELinux, kernel hay firmware. Không suy ra hỗ trợ mọi trình root.
+-16kiểm thử Java: giữ key lạ/set/đường dẫn có entity, thiếu key, schema sai,
+  xung đột, retry và phục hồi mô phỏng giữa hai rename. Trên Thor: apply/undo
+  giữ nguyên toàn bộ giá trị preference khi so XML; apply lại giữ SHA bản gốc.
+  Khi game PID20680 còn chạy, nút từ chối và SHA hai file không đổi.
+- Cấu hình game và save được sao lưu MỚI trước khi mở game. Castlevania qua
+  Steam/custom Turnip26.3.0 đã chạy bằng nút bật thủ công của Thor; FG DroidDeck
+  báo engine=off. Layer nạp từ runtime50CD bất biến. auto0 được giữ nguyên.
+  Nhận ảnh1024x576, neural sa=1/sr=1, xuất1920x1080 cùng FG async_shared.
+- Mỗi mẫu menu18giây, bỏ3giây đầu,15cửa sổ timestamp Vulkan hợp lệ:
+  neural+FG: trung vị59.26FPS nguồn ->116.86FPS trình bày, P95gap8.415ms;
+  GSR1+FG:58.44->116.89FPS; neural SR-only:59.43->59.44, generated=0;
+  bật lại FG:57.52->116.87, vẫn sa=1/sr=1. Không coi chênh nguồn nhỏ là lợi
+  ích hiệu năng; đây là mẫu menu, chưa phải sustained/latency/gameplay benchmark.
+  Chi phí FG input~1.9ms/output~0.66ms không bao gồm pass neural SR.
+  research/preset-game-summary.json và preset-*-menu-*.txt.
+- Continue vào intro vẫn có neural SR+FG:26cửa sổ hợp lệ trong mẫu30giây,
+  trung vị27.89->54.65FPS, P95gap25.236ms, maxgap42.054ms; còn khựng.
+  Log có cut/flow rejection nhưng chưa có đối chiếu
+  chất lượng cut/occlusion/HUD/native ground truth, không gọi là đã hết lỗi.
+  Không bật Khronos trong game này; chỉ xác nhận không thấy lỗi runtime trong
+  log thu. Validation của QA0.10 là bằng chứng riêng.
+- Cập nhật controller trong lúc game mở giữ PID20680 và đường runtime50CD.
+  Đã kết thúc đúng phiên test, kiểm SHA cả PLAYERPREFS.sav và BuildSave_0.sav
+  khớp snapshot mới; không cần ghi/khôi phục save. Sau test đã hoàn tác preset,
+  trả modelsgsr1/neural=false, manual0/auto0, khôi phục4global GPU settings,
+  bỏ fg override. Không còn DroidDeck chạy; không reboot lượt này.
+- APK0.11 SHA256:
+ 6AE9A58B6BD0AE828C2530A8B8C303E1644645BE71A8D064456C2ABEFFE6B3D9
+  Đã kéo APK cài thực về và đối chiếu khớp. Native giữ50CD... của0.10.
+  Mục tiêu đầy đủ vẫn còn: chất lượng/native reference, temporal SR, GLES,
+  các giả lập khác, nhịp trình bày, input latency và kiểm thử dài/nhiệt.
+
+LỊCH SỬ 0.10 — NEURAL SR ĐÃ TÍCH HỢP VÀ CHẠY CÙNG FG TRONG QA
 - Thêm lựa chọn Neural2D/GSR1 trong app, mặc định GSR1. Model dùng Anime4K
   CNN S,4 convolution và shuffle2x trên Vulkan, không thêm QNN/ONNX runtime.
   Nếu đầu ra khác2x, resize RGB neural và lấy alpha trực tiếp từ ảnh gốc.
