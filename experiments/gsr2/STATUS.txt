@@ -1,0 +1,30 @@
+SGSR2 integration investigation — 2026-10-23
+Upstream https://github.com/SnapdragonGameStudios/snapdragon-gsr
+Pinned commit d926f074bcb9d714e179f1ce0fcb9ee2eeb5074e
+Official README: sgsr/v2/README.md. Sources/license retained under research/sgsr2-pinned.
+
+Current installed product is0.12. GSR2 is NOT installed/enabled.
+Five compute shaders and two fragment shaders compile to Vulkan1.1 SPIR-V and
+pass spirv-val after changing version320es to450 and mapping sampler bindings
+to descriptor set1 and storage-image bindings to set2; UBO remains set0.
+This separates OpenGL resource namespaces which otherwise collide in Vulkan.
+Vertex shader has a missing explicit interface location and failed this audit;
+do not present all8shaders as passing. Exact compiler output is retained in
+research/sgsr2-compile-audit.json; generated adapters in build/sgsr2-audit.
+No GPU execution, quality, cost or game integration is established by compilation.
+
+Required renderer data: scene color BEFORE HUD, depth with known normal/reversed-Z
+convention, object velocity with upstream encoding, actual render jitter, current
+and previous view-projection relationship, exposure/FOV/near and scene reset.
+Static objects may use zero OBJECT velocity only when camera reprojection and
+depth are correct; zero motion for the whole moving scene is not a valid shortcut.
+The present Engine::recordSpatial hook has color/crop/size, not these semantics.
+DroidDeck compositor receives final color: guest game data cannot be inferred
+reliably from an arbitrary Vulkan image/descriptor by format alone.
+
+Next: own-renderer fixture with exact depth, velocity, jitter and camera matrices;
+run two-pass compute with Khronos sync validation, reference/resize/reset cases,
+and measured GPU cost. Then an explicit per-renderer provider (emulator engine
+or guest-game integration) before enabling GSR2 in any real-game profile.
+Keep GSR1/bounded neural available for color-only sources. GSR2 is temporal SR;
+it does not implement the separate intermediate-frame generator.
