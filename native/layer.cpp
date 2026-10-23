@@ -5,6 +5,7 @@
 #include "frame_worker.hpp"
 #include "queue_plan.hpp"
 #include "wsi_guard.hpp"
+#include "presenter_policy.hpp"
 #include <atomic>
 #include <vulkan/vk_layer.h>
 #include <android/log.h>
@@ -18,6 +19,7 @@
 #include <unistd.h>
 #include <time.h>
 #include <cstdlib>
+#include <cstdio>
 #define LOG(...) __android_log_print(ANDROID_LOG_INFO,"ThorNativeLayer",__VA_ARGS__)
 #define EXPORT extern "C" __attribute__((visibility("default")))
 static const char* layerName="VK_LAYER_THOR_native_fg";
@@ -76,7 +78,9 @@ static VkResult layerPresent(Device& d,VkQueue queue,const VkPresentInfoKHR* inf
  swaps.erase(std::unique(swaps.begin(),swaps.end()),swaps.end());
  std::vector<std::unique_lock<std::mutex>> wsiLocks;for(auto& swap:swaps)wsiLocks.emplace_back(swap->wsiMutex);
  std::unique_lock<std::mutex> lock(d.privateQueueMutex,std::defer_lock);if(d.sharedPresenter||queue==d.privateQueue)lock.lock();
- return d.a.QueuePresentKHR(queue,info);
+ auto result=d.a.QueuePresentKHR(queue,info);
+ if(result!=VK_SUCCESS)LOG("WSI_PRESENT result=%d swaps=%u",result,info->swapchainCount);
+ return result;
 }
 static void drainDevice(Device& d){
  std::vector<std::shared_ptr<Swap>> swaps;{std::lock_guard<std::mutex> lock(d.mutex);for(auto& item:d.swaps)swaps.push_back(item.second);}
@@ -84,7 +88,14 @@ static void drainDevice(Device& d){
 }
 static VkResult layerDeviceIdle(Device& d){std::lock_guard<std::mutex> lock(d.privateQueueMutex);return d.a.DeviceWaitIdle(d.handle);}
 enum class PresenterMode{Automatic,Private,Shared,Fence};
-static PresenterMode presenterMode(){char value[PROP_VALUE_MAX]{};__system_property_get("debug.thorfg.presenter",value);if(!value[0]||!strcmp(value,"auto"))return PresenterMode::Automatic;if(!strcmp(value,"async"))return PresenterMode::Private;if(!strcmp(value,"shared"))return PresenterMode::Shared;return PresenterMode::Fence;}
+static PresenterMode presenterMode(){
+ char value[PROP_VALUE_MAX]{};__system_property_get("debug.thorfg.presenter",value);
+ if(!value[0]||!strcmp(value,"auto")){
+  static const bool fence=[](){char process[256]{};auto file=std::fopen("/proc/self/cmdline","rb");if(file){std::fread(process,1,sizeof(process)-1,file);std::fclose(file);}return defaultFencePresenter(process);}();
+  return fence?PresenterMode::Fence:PresenterMode::Automatic;
+ }
+ if(!strcmp(value,"async"))return PresenterMode::Private;if(!strcmp(value,"shared"))return PresenterMode::Shared;return PresenterMode::Fence;
+}
 static bool asyncRequested(){return presenterMode()!=PresenterMode::Fence;}
 static bool autoProcess(){const char* selected=std::getenv("THOR_FG_AUTO_MATCH");return selected&&strcmp(selected,"1")==0;}
 static bool enabled(){char value[PROP_VALUE_MAX]{};__system_property_get(autoProcess()?"debug.thorfg.auto":"debug.thorfg.enabled",value);return strcmp(value,"1")==0;}
@@ -200,6 +211,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL createSwapchain(VkDevice device,const VkSw
  ok=ok && (ci->imageFormat==VK_FORMAT_R8G8B8A8_UNORM||ci->imageFormat==VK_FORMAT_B8G8R8A8_UNORM)&&ci->imageArrayLayers==1&&ci->imageColorSpace==VK_COLOR_SPACE_SRGB_NONLINEAR_KHR&&!(ci->flags&VK_SWAPCHAIN_CREATE_PROTECTED_BIT_KHR)&&ci->imageExtent.width<=4096&&ci->imageExtent.height<=4096;
  // Only FIFO is supported by the simple proof-of-concept presenter.
  ok=ok && ci->presentMode==VK_PRESENT_MODE_FIFO_KHR;
+ LOG("SWAPCHAIN_INPUT format=%u colorspace=%u mode=%u usage=%u flags=%u layers=%u requested_images=%u surface_min=%u surface_max=%u surface_usage=%u format_features=%u working_features=%u compatible=%d",ci->imageFormat,ci->imageColorSpace,ci->presentMode,ci->imageUsage,ci->flags,ci->imageArrayLayers,ci->minImageCount,caps.minImageCount,caps.maxImageCount,caps.supportedUsageFlags,fp.optimalTilingFeatures,rp.optimalTilingFeatures,ok);
  if(ok){changed.imageUsage|=transfers;changed.minImageCount=std::max(changed.minImageCount,caps.minImageCount+1);if(caps.maxImageCount&&changed.minImageCount>caps.maxImageCount)ok=false;}
  auto r=d->a.CreateSwapchainKHR(device,ok?&changed:ci,alloc,out);
  if(r!=VK_SUCCESS&&ok){ok=false;r=d->a.CreateSwapchainKHR(device,ci,alloc,out);}
@@ -406,6 +418,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL acquireNext(VkDevice device,VkSwapchainKHR
  auto deferred=swap?swap->deferredResult.load():VK_SUCCESS;if(deferred<0)return deferred;
  if(!swap||(!d->privateQueue&&!d->sharedPresenter))return d->a.AcquireNextImageKHR(device,handle,timeout,semaphore,fence,index);
  auto result=guardedWsiAcquire(swap->wsiMutex,timeout,[&]{return d->a.AcquireNextImageKHR(device,handle,0,semaphore,fence,index);},[&]{return swap->deferredResult.load();});
+ if(result!=VK_SUCCESS&&result!=VK_TIMEOUT&&result!=VK_NOT_READY)LOG("WSI_ACQUIRE result=%d deferred=%d",result,deferred);
  deferred=swap->deferredResult.load();return result==VK_SUCCESS&&deferred==VK_SUBOPTIMAL_KHR?deferred:result;
 }
 static VKAPI_ATTR VkResult VKAPI_CALL acquireNext2(VkDevice device,const VkAcquireNextImageInfoKHR* info,uint32_t* index){

@@ -58,6 +58,7 @@ $common=@('-std=c++17','-O2','-fPIC','-I',"$build/generated",'-I',"$root/native"
 & $cc @common "$root/tests/frame_worker_test.cpp" -o "$build/thor-frame-worker-test";Check 'Asynchronous frame worker selftest'
 & $cc @common "$root/tests/queue_plan_test.cpp" -o "$build/thor-queue-plan-test";Check 'Private queue reservation selftest'
 & $cc @common "$root/tests/wsi_guard_test.cpp" -o "$build/thor-wsi-guard-test";Check 'Asynchronous WSI host synchronization selftest'
+& $cc @common "$root/tests/presenter_policy_test.cpp" -o "$build/thor-presenter-policy-test";Check 'Presenter package policy selftest'
 New-Item -ItemType Directory -Force -Path "$root/module/zygisk" | Out-Null
 & $cc @common -shared "$root/native/zygisk.cpp" -o "$root/module/zygisk/arm64-v8a.so" -llog '-Wl,-z,max-page-size=16384';Check 'Zygisk bootstrap'
 # Zip entries must use '/', including when built on Windows (Magisk extracts on Linux).

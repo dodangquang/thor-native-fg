@@ -1,0 +1,53 @@
+2026-10-23 AYN Thor, Android13, Eden Nightly6e1b120, Turnip26.1.3.
+
+User priority: DroidDeck and Eden before PPSSPP. Automatic activation remains OFF.
+Fresh save/config archives in root-private priority-test-20261023-1322, followed
+by fresh Eden diagnostic snapshots1324/1332/1358. Never restore these saves over
+later user progress. DroidDeck's two Castlevania save hashes stayed unchanged.
+
+DroidDeck0.5.0 PID13497/runtimeA384: built-in FG off; ThorGSR1 active1024x576 to
+1920x1080. Castlevania reached game title/Continue/intro beyond Steam. Forty
+cinematic metric windows: median source28.93/display57.185/generated28.22,
+p95gap25.225ms. This is not gameplay, latency, or native-vs-FG performance proof.
+dequeueBuffer timeout warnings were captured. Preset selectively undone.
+
+Eden PID18934/21613: real game instance loaded layer through custom Turnip.
+Original Immediate selection resulted in MAILBOX Vulkan mode1, rejected by
+Thor's FIFO-only eligibility. FG correctly remained off. FIFO via Eden UI
+made it eligible, but async_shared repeatedly recreated swapchains/compiled
+pipelines. Reopening FIFO alone did not fix it (PID25574). Hot FGoff stabilized
+native30FPS; explicit fence + FGon stabilized real presentation around60FPS.
+Underlying asynchronous recreation cause is not yet established.
+
+New package-scoped default fence policy applies only dev.eden.eden_emulator.nightly
+and colon subprocesses; not Duo or unrelated packages. Explicit presenter
+property still overrides for research. Eight package identity checks passed
+on Thor. Source does not force present modes or edit Eden preferences.
+
+Controller policy APK9EC27E1B799722A698781845449E477686682082FABF30B398789A083F63F41F
+installed; runtimeB837B938582681F10D20D95F3A525CCF979B80FA108EBFC86A1081A713407109
+mapped in PID8359. With debug.thorfg.presenter=auto, FIFO title scene generated
+real frames and reported presenter=fence/display_valid1/display~60FPS; no
+recreation loop observed in that profile. No Zygisk module update or reboot.
+Earlier diagnostic APK DCAF... and runtime2CAA... retained, not the final policy.
+
+PID25574 gameplay scene: Another Crab's Treasure continued current save and
+stood idle in underwater courtyard, with ownFG and built-inFGoff. Summary in
+research/priority-eden-gameplay-summary.json. SR remained0: Eden already scaled
+before final image; no ThorGSR1/temporalGSR2 claim. Final policy checked at title,
+not a repeat gameplay quality run. Neither run proves fast camera/cut quality.
+
+Cleanup audit priority-cleanup-audit.txt: manual0 auto0 sr0 target empty,
+presenter/fg override empty, global GPUdebug0/other keys absent. Game processes
+stopped, overlay service stopped, manual backup and Droid preset marker absent.
+Only VSync's two config lines restored to this run's original Immediate/false
+default. Eden's own bookkeeping/lastplayed/addon-list updates retained; no saves
+restored. All immutable runtime packages retained. Controller remains version0.12
+with experimental compatibility change; GSR2 backend still not integrated.
+
+To reproduce: new backup first; built-in FGoff; Eden graphics VSync FIFO (On),
+Thor manual enable Eden Nightly, reopen game. No global presenter override.
+Collect currentPID runtime map + THOR_METRICS including actual generated samples,
+not merely PIPELINE/INSTANCE messages or HUD request estimates. Restore original
+VSync after testing. Next: actual motion/occlusion/cut tests, asynchronous root
+cause, renderer source/depth/motion/jitter provider and SR path. Goal unfinished.
