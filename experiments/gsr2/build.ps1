@@ -1,4 +1,4 @@
-param([string]$DataDirectory='E:/ThorNative/research/gsr2-plane',[switch]$UseRelaxedPrecision)
+param([string]$DataDirectory='E:/ThorNative/research/gsr2-plane',[switch]$UseRelaxedPrecision,[switch]$FragmentMath,[switch]$StableKernel,[switch]$FullKernel)
 $ErrorActionPreference='Stop'
 $root=Split-Path (Split-Path $PSScriptRoot)
 $sdk='E:/DevTools/Android/Sdk'
@@ -15,7 +15,16 @@ $deviceSource=$deviceSource.Substring($deviceSource.IndexOf('struct Device {'),$
 [IO.File]::WriteAllText("$lab/lab_device.hpp",$deviceSource,[Text.UTF8Encoding]::new($false))
 $shaderBin="$sdk/ndk/27.3.13750724/shader-tools/windows-x86_64"
 $header="#pragma once`n#include <cstdint>`n"
+if($FragmentMath){
+ if($UseRelaxedPrecision){throw 'Fragment-math experiment requires full precision'}
+ $adapterFlags=@();if($StableKernel){$adapterFlags+='--stable'}
+ if($FullKernel){$adapterFlags+='--full'}
+ & 'C:/Users/dodan/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe' "$PSScriptRoot/adapt_fragment.py" "$PSScriptRoot/upstream" $lab @adapterFlags;Check 'Fragment math adapter'
+}
+elseif($StableKernel){throw 'StableKernel requires FragmentMath'}
+if($FullKernel -and -not $FragmentMath){throw 'FullKernel requires FragmentMath'}
 foreach($name in @('convert','upscale')){
+ if(-not $FragmentMath){
  $shader=Get-Content -LiteralPath "$PSScriptRoot/upstream/sgsr2_$name.comp" -Raw
  $shader=$shader.Replace('#version 320 es','#version 450')
  if(-not $UseRelaxedPrecision){$shader=$shader.Replace('mediump','highp')}
@@ -30,6 +39,7 @@ foreach($name in @('convert','upscale')){
  }
  $shader=[regex]::Replace($shader,'layout\(binding = ([01]),', {param($m)'layout(binding = '+(10+[int]$m.Groups[1].Value)+','})
  [IO.File]::WriteAllText("$lab/$name.comp",$shader,[Text.UTF8Encoding]::new($false))
+ }
  & "$shaderBin/glslc.exe" --target-env=vulkan1.1 -O "$lab/$name.comp" -o "$lab/$name.spv";Check "GSR2 compile $name"
  & "$shaderBin/spirv-val.exe" --target-env vulkan1.1 "$lab/$name.spv";Check "GSR2 SPIRV $name"
  $bytes=[IO.File]::ReadAllBytes("$lab/$name.spv");$words=for($i=0;$i -lt $bytes.Length;$i+=4){'0x'+[BitConverter]::ToUInt32($bytes,$i).ToString('x8')+'u'}
@@ -38,8 +48,8 @@ foreach($name in @('convert','upscale')){
 [IO.File]::WriteAllText("$lab/gsr2_shaders.hpp",$header,[Text.UTF8Encoding]::new($false))
 & $cc -std=c++17 -O2 -fPIC -shared -static-libstdc++ -I "$root/native" -I "$root/build/generated" -I "$lab" "$root/native/engine.cpp" "$PSScriptRoot/lab.cpp" -lvulkan -llog '-Wl,-z,max-page-size=16384' -o "$lab/lib/arm64-v8a/libthor_gsr2_lab.so";Check 'GSR2 lab JNI'
 $nativeHash=(Get-FileHash -LiteralPath "$lab/lib/arm64-v8a/libthor_gsr2_lab.so" -Algorithm SHA256).Hash.ToLowerInvariant()
-$sourceHashes=@{};foreach($path in @('native/engine.cpp','native/engine.hpp','build/generated/shaders.hpp','build/gsr2/gsr2_shaders.hpp','build/gsr2/lab_device.hpp','experiments/gsr2/lab.cpp','experiments/gsr2/build.ps1','experiments/gsr2/prepare.py','experiments/gsr2/upstream/sgsr2_convert.comp','experiments/gsr2/upstream/sgsr2_upscale.comp')){$sourceHashes[$path]=(Get-FileHash -LiteralPath "$root/$path" -Algorithm SHA256).Hash.ToLowerInvariant()}
-$provenance=@{fixtures_sha256=$fixtureHash;native_sha256=$nativeHash;source_hashes=$sourceHashes;upstream_commit='d926f074bcb9d714e179f1ce0fcb9ee2eeb5074e';relaxed_precision=[bool]$UseRelaxedPrecision}
+$sourceHashes=@{};foreach($path in @('native/engine.cpp','native/engine.hpp','build/generated/shaders.hpp','build/gsr2/gsr2_shaders.hpp','build/gsr2/lab_device.hpp','experiments/gsr2/lab.cpp','experiments/gsr2/build.ps1','experiments/gsr2/prepare.py','experiments/gsr2/scene3d.py','experiments/gsr2/test_fixture.py','experiments/gsr2/adapt_fragment.py','experiments/gsr2/upstream/sgsr2_convert.comp','experiments/gsr2/upstream/sgsr2_upscale.comp','experiments/gsr2/upstream/sgsr2_convert.fs','experiments/gsr2/upstream/sgsr2_upscale.fs')){$sourceHashes[$path]=(Get-FileHash -LiteralPath "$root/$path" -Algorithm SHA256).Hash.ToLowerInvariant()}
+$provenance=@{fixtures_sha256=$fixtureHash;native_sha256=$nativeHash;source_hashes=$sourceHashes;upstream_commit='d926f074bcb9d714e179f1ce0fcb9ee2eeb5074e';relaxed_precision=[bool]$UseRelaxedPrecision;fragment_math_as_compute=[bool]$FragmentMath;stable_kernel=[bool]$StableKernel;full_kernel=[bool]$FullKernel}
 [IO.File]::WriteAllText("$lab/assets/provenance.json",($provenance | ConvertTo-Json -Depth 4),[Text.UTF8Encoding]::new($false))
 Copy-Item -LiteralPath "$root/research/validation/android-binaries-1.4.363.0/arm64-v8a/libVkLayer_khronos_validation.so" -Destination "$lab/lib/arm64-v8a/libVkLayer_khronos_validation.so" -Force
 Copy-Item -LiteralPath "$sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" -Destination "$lab/lib/arm64-v8a/libc++_shared.so" -Force
@@ -48,7 +58,7 @@ Copy-Item -LiteralPath "$DataDirectory/manifest.json" -Destination "$lab/assets/
 Copy-Item -LiteralPath "$root/third_party/anime4k/LICENSE.txt","$root/third_party/anime4k/Anime4K_Upscale_CNN_x2_S.glsl" -Destination "$lab/assets/legal/Anime4K" -Force
 Copy-Item -LiteralPath "$root/third_party/Snapdragon-GSR-LICENSE.txt","$root/third_party/sgsr1_shader_mobile.frag" -Destination "$lab/assets/legal/SGSR1" -Force
 New-Item -ItemType Directory -Force -Path "$lab/assets/legal/SGSR2" | Out-Null
-Copy-Item -LiteralPath "$PSScriptRoot/upstream/LICENSE","$PSScriptRoot/upstream/sgsr2_convert.comp","$PSScriptRoot/upstream/sgsr2_upscale.comp" -Destination "$lab/assets/legal/SGSR2" -Force
+Copy-Item -LiteralPath "$PSScriptRoot/upstream/LICENSE","$PSScriptRoot/upstream/sgsr2_convert.comp","$PSScriptRoot/upstream/sgsr2_upscale.comp","$PSScriptRoot/upstream/sgsr2_convert.fs","$PSScriptRoot/upstream/sgsr2_upscale.fs" -Destination "$lab/assets/legal/SGSR2" -Force
 $manifest='<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.thor.nativefg.gsr2qa" android:versionCode="1"><uses-sdk android:minSdkVersion="29" android:targetSdkVersion="33"/><application android:debuggable="true" android:extractNativeLibs="true" android:allowBackup="false" android:label="Thor Spatial Quality Lab"/><instrumentation android:name="com.thor.gsr2qa.SpatialInstrumentation" android:targetPackage="com.thor.nativefg.gsr2qa"/></manifest>'
 [IO.File]::WriteAllText("$lab/AndroidManifest.xml",$manifest,[Text.UTF8Encoding]::new($false))
 [IO.File]::WriteAllText("$lab/LabFixture.java",'package com.thor.gsr2qa; final class LabFixture { static final String SHA256="'+$fixtureHash+'"; static final String NATIVE_SHA256="'+$nativeHash+'"; }',[Text.UTF8Encoding]::new($false))

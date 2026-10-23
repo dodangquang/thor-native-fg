@@ -24,7 +24,7 @@ public final class SpatialInstrumentation extends Instrumentation {
             // Results belong only to this temporary QA package. Different corpus
             // sizes must not leave stale members that could be scored as current.
             File[] previous=directory.listFiles();if(previous==null)throw new IOException("Cannot list prior results");
-            for(File file:previous){if(!file.isFile()||!file.getName().matches("(frame-[0-9]{3}\\.rgba16f|diagnostic\\.bin)")||!file.delete())throw new IOException("Cannot clear prior QA result: "+file.getName());}
+            for(File file:previous){if(!file.isFile()||!file.getName().matches("(frame-[0-9]{3}\\.rgba16f|diagnostic(-001)?\\.bin)")||!file.delete())throw new IOException("Cannot clear prior QA result: "+file.getName());}
             MessageDigest nativeDigest=MessageDigest.getInstance("SHA-256");File library=new File(getContext().getApplicationInfo().nativeLibraryDir,"libthor_gsr2_lab.so");
             try(InputStream input=new FileInputStream(library)){byte[] buffer=new byte[65536];int count;while((count=input.read(buffer))!=-1)nativeDigest.update(buffer,0,count);}
             StringBuilder nativeHash=new StringBuilder();for(byte value:nativeDigest.digest())nativeHash.append(String.format(java.util.Locale.ROOT,"%02x",value&255));

@@ -24,7 +24,7 @@ def main():
         for member in tar:
             if not member.isfile():continue
             name=pathlib.PurePosixPath(member.name).name
-            if name=='diagnostic.bin':
+            if name in ('diagnostic.bin','diagnostic-001.bin'):
                 assert member.size==m['width']*m['height']*16
                 (a.directory/name).write_bytes(tar.extractfile(member).read());continue
             assert name in expected and name not in found and member.size==ow*oh*8
@@ -46,6 +46,7 @@ def main():
         mse=float(np.mean([r[name+'_mse'] for r in settled]));summary[name+'_mse']=mse
         summary[name+'_psnr']=float(-10*np.log10(mse)) if mse>0 else None # null means exact/infinite PSNR
     times=[float(t) for t in re.findall(r'GSR2_FRAME frame=\d+ gpu_ms=([\d.]+)',log)];assert len(times)==32
-    report=dict(pid=int(pid[1]),native_sha256=native[1],fixtures_sha256=m['sha256'],input=[m['width'],m['height']],output=m['output'],summary=summary,gpu_median_ms=float(np.median(times[4:])),rows=rows,limits='Two synthetic moving planes; short GPU stage timestamps exclude upload/readback/game/display/input latency. Finite output is not correctness/equivalence proof.')
+    scene='Synthetic3D/static geometry/lateral camera' if m.get('scene3d') else 'Two synthetic moving planes'
+    report=dict(pid=int(pid[1]),native_sha256=native[1],fixtures_sha256=m['sha256'],input=[m['width'],m['height']],output=m['output'],summary=summary,gpu_median_ms=float(np.median(times[4:])),rows=rows,limits=scene+'; short GPU stage timestamps exclude upload/readback/game/display/input latency. Finite output is not correctness/equivalence proof.')
     (a.directory/'report.json').write_text(json.dumps(report,indent=2,allow_nan=False));print(json.dumps({k:v for k,v in report.items() if k!='rows'},indent=2,allow_nan=False))
 if __name__=='__main__':main()

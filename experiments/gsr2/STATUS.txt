@@ -70,3 +70,48 @@ Next required: explain reconstruction deficit on independently generated data,
 extend to actual3D camera/depth/disocclusion/exposure cases and establish a real
 renderer provider. Also retain all FG/motion/pacing/GLES requirements from the
 original product objective. No completion or universal GSR2 compatibility claim.
+
+Second executed checkpoint 2026-10-23 ~13:00+07:00:
+- Current source scene revision2: object texture advects with its rectangle.
+  Independent CPU material probe catches the original screen-anchored texture
+  mistake. Five fixture/metric/projection/depth checks pass. Revision1data stays
+  frozen and its claimed exact object-material flow is superseded by this fix.
+- Canonical pinned2-pass fragment sources added unchanged with BSDlicense.
+  Own compute adapter reuses its math without pretending to measure tile-based
+  fragment performance. Raw2D PID3245 and stable-width PID4347 pass validation;
+  CPU reset-frame references match them within0.125byte after accounting for
+  upstream's disabled corner taps and full reset-alpha/history-clamp math.
+-2x original5tap kernel has negative mass at103756of263169sampled phases,
+  minimum-0.0956345; mass is near0at5232phases. Stable factor has min0.21167,
+  zero nonpositive/near0points. In original math negative mass can make reset
+  alpha0, so a reset samples clamped history. This is reproduced in CPU/GPU,
+  not inferred merely from visually unfavorable scores. Full9tap ablation also
+  agrees with CPU but is worse/slower on2D, so not selected.
+- Revision2 128x72->256x1442D: bilinear33.3289dB, rawCS28.7479(PID4853),
+  rawfragmentmath27.3167(PID3245), stable5tap31.3957(PID4347), stable9tap31.0787
+  (PID5172). Improvement versus raw does NOT imply beating bilinear on2D.
+- New actual3D camera/depth provider in scene3d.py: static world ground/spheres/
+  thin bars, lateral camera, perspective normal-Z depth, encoded-zero sentinel
+  for camera fallback, Halton jitter and4sample reference. No guest-game provider.
+- Same3Dfixture ae6c566271edb51e9c275b5dc34b12ca600650bcd2fdfe11f814bddd00fceaad:
+  stable5tap PID5737 PSNR32.1408 vs bilinear30.5431, rawfragmentmath PID6484
+  31.6736, rawCS PID6303 30.7242. Source input128x72->256x144. Short stage
+  medians~0.0873ms stable/0.0875rawFS/0.0993CS; uncontrolled clocks, no game/
+  FG/input-latency or sustained performance claim.
+- Same native57e37c8c2783f2ea689427ab146471383f8840d98203db0c2d9125f5415e40ff:
+  per-frame-reset PID5927 gives29.4679dB, incorrect object-zero motion PID6148
+  gives30.3240. All64paired input/reference PNGs match bytes; reset0/16 output
+  matches per-frame-reset exactly. compare_controls.py passes; this proves a
+  temporal/data-quality benefit only in the authored scene. GPU camera vectors
+  match independent provider/depth-footprint math within0.000479source pixel.
+- Same family at256x144->512x288, PID6600/fixture
+  d5da042dfa3c57fc27416d377f8883059ed579abaaa20c77c44e48d33a987280, stable34.6397
+  vs bilinear32.8399dB; camera error<0.000976source pixel. Not an independent
+  scene/content holdout. GPUstage0.2554ms, same timing limitations.
+- All listed GPU sessions checked exact fixture/nativeSHA, Khronos load,
+  zero captured VUID/sync/fatal, expected output sizes and finite RGB. Full
+  temporal CPU conformance, arbitrary camera, reverse-Z, transparency, exposure,
+  lifecycle/resize, actual-game provider and combined FG remain unproved.
+- QA package removed Success. Fresh reads: installed controller0.12-experimental,
+  manual0/auto0. No game launch, save/preference write, reboot or root change in
+  this turn. No runtime test process remains active. Goal remains ACTIVE.

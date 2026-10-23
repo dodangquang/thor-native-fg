@@ -19,7 +19,9 @@ def render(w, h, frame, jitter, motion=True):
     rgb = np.stack((.35+.17*np.sin(a*91+b*23), .4+.22*np.cos(b*73-a*19), .3+.2*np.sin(a*47-b*63)), -1)
     if cut: rgb = rgb[..., ::-1].copy() * np.array([.75, .9, 1.1])
     foreground = (abs(u-(.3+t*.008))<.10)&(abs(v-.52)<.19)
-    rgb[foreground] = np.stack((.7+.1*np.sin(v*190), .14+.05*np.cos(u*170), .08+u*.05), -1)[foreground]
+    # Texture belongs to the translating object, not to screen coordinates.
+    object_u=u-t*.008
+    rgb[foreground] = np.stack((.7+.1*np.sin(v*190), .14+.05*np.cos(object_u*170), .08+object_u*.05), -1)[foreground]
     depth = np.where(foreground,.3,.7).astype('<f4')
     velocity = np.zeros((h,w,4), '<f4')
     velocity[...,0] = np.where(foreground,.008,sx)*2
@@ -29,7 +31,7 @@ def render(w, h, frame, jitter, motion=True):
     return rgba, depth, velocity
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('directory',type=pathlib.Path);p.add_argument('--width',type=int,default=128);p.add_argument('--height',type=int,default=72);p.add_argument('--history-disabled',action='store_true');p.add_argument('--zero-velocity',action='store_true');p.add_argument('--constant-control',action='store_true');a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('directory',type=pathlib.Path);p.add_argument('--width',type=int,default=128);p.add_argument('--height',type=int,default=72);p.add_argument('--history-disabled',action='store_true');p.add_argument('--zero-velocity',action='store_true');p.add_argument('--constant-control',action='store_true');p.add_argument('--scene3d',action='store_true');a=p.parse_args()
     a.directory.mkdir(parents=True,exist_ok=True);w,h=a.width,a.height
     assert w>=16 and h>=16
     records=[]
@@ -44,16 +46,25 @@ def main():
             # Camera is exactly identity for all frames; object motion is separate.
             struct.pack_into('<4f2I',params,112,1.,1.,.1,.1,1,int(reset))
             rgba,depth,velocity=render(w,h,frame,j)
+            if a.scene3d:
+                from scene3d import render as render3d,camera
+                rgba,depth,velocity=render3d(w,h,frame,j)
+                current,_,projection,near=camera(frame,w/h)
+                previous=camera(frame if frame in (0,16) else frame-1,w/h)[0]
+                matrix=previous@np.linalg.inv(current)
+                struct.pack_into('<16f',params,48,*matrix.T.flatten())
+                struct.pack_into('<4f2I',params,112,1.,1/projection[0,0],near,.1,int(frame in (0,16)),int(reset))
             if a.zero_velocity: velocity[...,:2]=32767/65535
             if a.constant_control:
                 rgba[...,:3]=(40,90,160) if frame<16 else (180,30,65)
                 depth[:]=.7;velocity[...,:2]=32767/65535
             out.write(params);out.write(rgba.tobytes());out.write(depth.tobytes());out.write(velocity.tobytes())
             ref=render(w*2,h*2,frame,(0,0))[0]
+            if a.scene3d:ref=render3d(w*2,h*2,frame,(0,0),4)[0]
             if a.constant_control: ref[...,:3]=rgba[0,0,:3]
             Image.fromarray(ref).save(a.directory/f'frame-{frame:03d}-reference.png')
             Image.fromarray(rgba).save(a.directory/f'frame-{frame:03d}-input.png')
             records.append(dict(frame=frame,jitter=j,reset=reset))
-    manifest=dict(width=w,height=h,output=[w*2,h*2],frames=records,history_disabled=a.history_disabled,zero_velocity=a.zero_velocity,constant_control=a.constant_control,source='author-owned analytic moving planes; identity camera; normal depth; encoded object velocity; Halton jitter',limits='toy scene, no real-game integration or quality equivalence',sha256=hashlib.sha256((a.directory/'fixtures.bin').read_bytes()).hexdigest())
+    manifest=dict(scene_revision=2,scene3d=a.scene3d,width=w,height=h,output=[w*2,h*2],frames=records,history_disabled=a.history_disabled,zero_velocity=a.zero_velocity,constant_control=a.constant_control,source='author-owned moving3Dcamera/static geometry, perspective Vulkan depth, camera reprojection,4sample reference' if a.scene3d else 'author-owned analytic moving planes; identity camera; normal depth; encoded object velocity; Halton jitter',limits='toy scene, no real-game integration or quality equivalence',sha256=hashlib.sha256((a.directory/'fixtures.bin').read_bytes()).hexdigest())
     (a.directory/'manifest.json').write_text(json.dumps(manifest,indent=2))
 if __name__=='__main__':main()

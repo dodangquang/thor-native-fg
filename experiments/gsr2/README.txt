@@ -26,8 +26,8 @@ Reproduction from E:/ThorNative with bundled NumPy/Pillow Python:
  Save exact instrumentation text as a UTF8file, then:
  python experiments/gsr2/collect.py FIXTURE_DIR OUTPUT_DIR INSTRUMENTATION_FILE
  adb uninstall com.thor.nativefg.gsr2qa
- For1080p add --width960 --height540 (separate actual arguments with spaces).
- For odd extents use --width130 --height74; for constant controls add
+ For1080p add --width 960 --height 540.
+ For odd extents use --width 130 --height 74; for constant controls add
  --constant-control. --history-disabled resets every frame; --zero-velocity
  supplies deliberately incorrect zero object motion as a negative control.
 
@@ -59,3 +59,35 @@ an unfavorable reconstruction-quality result a passing product result.
 Current phone controller stays0.12, automaticOFF. These experiments do not add
 a GSR2 selector or pretend color-only compositor access supplies depth/motion.
 Full independent SR+FG product requirements remain in PRODUCT-REQUIREMENTS.txt.
+
+Second executed checkpoint (see STATUS.txt):
+- Scene revision2 fixes a material/vector inconsistency in the rectangle from
+  revision1: object texture now moves with geometry. test_fixture.py verifies
+  visible material advection, independent bilinear/jitter controls, perspective
+  camera reprojection/column-major serialization, and normal depth analytically.
+  Keep revision1datasets frozen; they do not prove exact material-flow semantics.
+- --scene3d renders ground, shaded spheres and thin bars with a lateral camera,
+  actual perspective Vulkan0..1depth and zero object-motion sentinel. Scene reset
+  at16 changes camera/color. Reference uses4subpixel samples, source1. This is
+  one authored scene family and does not establish real-game compatibility.
+- -FragmentMath adapts the official2-pass fragment algorithm to compute, using
+  a shared144byte validated UBO. Both stages still execute on GPU. This does NOT
+  measure a native fragment/render-pass implementation's tile/performance benefit.
+- -StableKernel caps the pre-scale radial kernel factor at1. Original fragment
+  math at2x can have negative normalization mass and a reset alpha clamped to0.
+  kernel_probe.py independently reproduces reset-frame GPU pixels in a flat-depth
+  ROI within0.125byte and scans513x513phases. No tolerance was loosened. The
+  stable factor gives strictly positive mass over that sampled grid. Raw variant
+  remains a control. This is a Thor modification, not unchanged Qualcomm math.
+- -FullKernel re-enables the upstream corner samples for a still camera. It was
+  worse than the stable5tap variant in the2Dcase; retain as an explicit ablation,
+  not the selected candidate. Camera-moving3D cases use the5tap branch.
+- audit_camera.py checks frame1GPU motion against fixture matrices/depth. It
+  explicitly models the fragment gather footprint rows-1,0,+2, which differs
+  from the compute variant's symmetric3x3. Do not silently substitute footprints.
+  The current tests cover lateral camera/static geometry and normal-Z only.
+- compare_controls.py requires bit-identical paired inputs/references and same
+  native library for history-off/bad-motion controls, plus bit-exact resets0/16.
+  The stable candidate beats both controls and bilinear in the3Dscene at256x144
+  output, and beats bilinear at512x288output. It still loses to bilinear in the
+  moving2Dscene. No universal quality winner is claimed; no game selector added.
