@@ -20,6 +20,11 @@ public class RuntimeMetricsTest {
         RuntimeMetrics separate=RuntimeMetrics.parse(version2,10000);
         check(separate!=null&&separate.hasUpscaling()&&separate.inputWidth==1920&&separate.detail().contains("GSR1 ON"),"SR source dimensions are separate from full-resolution FG input");
         check(!RuntimeMetrics.parse(version2.replace("sr=1","sr=0"),10000).hasUpscaling(),"old SR dimensions cannot keep SR ON on a frame without an upscale pass");
+        RuntimeMetrics neural=RuntimeMetrics.parse(version2+" sa=1",10000);
+        check(neural.detail().contains("Neural 2D ON")&&!neural.detail().contains("GSR1"),"actual neural SR is identified independently of requested settings");
+        check(neural.hud().equals(separate.hud()),"algorithm selection leaves the two-number HUD unchanged");
+        check(RuntimeMetrics.parse(version2.replace("sr=1","sr=0")+" sa=1",10000).detail().equals("SR: chưa upscale"),"cached neural model cannot claim SR without an actual upscale pass");
+        check(RuntimeMetrics.parse(version2+" sa=9",10000)==null,"unknown SR algorithm never silently claims GSR1");
         check(!RuntimeMetrics.parse(version2.replace("sr_in_w=960 sr_in_h=540","sr_in_w=1920 sr_in_h=1080"),10000).hasUpscaling(),"same-size pass cannot claim SR in protocol2");
         check(RuntimeMetrics.parse(line.replace("v=1","v=2"),0)==null,"protocol2 without SR evidence rejected");
         check(!RuntimeMetrics.parse(version2,20000).fresh(20000),"reading an old buffered native log cannot make it appear live again");

@@ -15,7 +15,7 @@ static std::atomic<bool> running{false};static std::atomic<int> mode{2};static s
 struct Demo {
  VkInstance instance{};VkSurfaceKHR surface{};VkPhysicalDevice phys{};VkDevice device{};VkQueue queue{};Api a;
  VkSwapchainKHR swapchain{};std::vector<VkImage> images;std::vector<VkSemaphore> ready;
- VkFence fence{},workFence{};bool workPending=false;VkCommandPool pool{};VkCommandBuffer cmd{};Engine e;Image source;Pipeline scene;VkDescriptorSet sceneSet{};VkExtent2D extent{};bool sourceInitialized=false;
+ VkFence fence{},workFence{};bool workPending=false;VkCommandPool pool{};VkCommandBuffer cmd{};Engine e,qaSpatial;Image source;Pipeline scene;VkDescriptorSet sceneSet{};VkExtent2D extent{};bool sourceInitialized=false;
  VkFormat swapFormat{};VkBuffer qaBuffer{};VkDeviceMemory qaMemory{};void* qaMapped{};size_t qaFrameBytes=0;int qaChecks=0;
  PFN_vkGetPastPresentationTimingGOOGLE appTiming{};uint32_t appPresentID=100000,appReturned=0,appUnknown=0;
  void pollAppTiming(){
@@ -24,7 +24,7 @@ struct Demo {
   for(uint32_t n=0;n<count;n++){appReturned++;if(values[n].presentID<=100000||values[n].presentID>appPresentID)appUnknown++;}
   if((appPresentID-100000)%8==0)LOG("APP_TIMING submitted=%u returned=%u unknown=%u",appPresentID-100000,appReturned,appUnknown);
  }
- ~Demo(){if(device){a.DeviceWaitIdle(device);if(qaMapped)a.UnmapMemory(device,qaMemory);if(qaBuffer)a.DestroyBuffer(device,qaBuffer,nullptr);if(qaMemory)a.FreeMemory(device,qaMemory,nullptr);if(scene.pipeline)a.DestroyPipeline(device,scene.pipeline,nullptr);if(scene.layout)a.DestroyPipelineLayout(device,scene.layout,nullptr);if(scene.setLayout)a.DestroyDescriptorSetLayout(device,scene.setLayout,nullptr);if(source.view)a.DestroyImageView(device,source.view,nullptr);if(source.image)a.DestroyImage(device,source.image,nullptr);if(source.memory)a.FreeMemory(device,source.memory,nullptr);e.release();for(auto s:ready)a.DestroySemaphore(device,s,nullptr);if(fence)a.DestroyFence(device,fence,nullptr);if(workFence)a.DestroyFence(device,workFence,nullptr);if(pool)a.DestroyCommandPool(device,pool,nullptr);if(swapchain)a.DestroySwapchainKHR(device,swapchain,nullptr);a.DestroyDevice(device,nullptr);}if(surface)vkDestroySurfaceKHR(instance,surface,nullptr);if(instance)vkDestroyInstance(instance,nullptr);}
+ ~Demo(){if(device){a.DeviceWaitIdle(device);if(qaMapped)a.UnmapMemory(device,qaMemory);if(qaBuffer)a.DestroyBuffer(device,qaBuffer,nullptr);if(qaMemory)a.FreeMemory(device,qaMemory,nullptr);if(scene.pipeline)a.DestroyPipeline(device,scene.pipeline,nullptr);if(scene.layout)a.DestroyPipelineLayout(device,scene.layout,nullptr);if(scene.setLayout)a.DestroyDescriptorSetLayout(device,scene.setLayout,nullptr);if(source.view)a.DestroyImageView(device,source.view,nullptr);if(source.image)a.DestroyImage(device,source.image,nullptr);if(source.memory)a.FreeMemory(device,source.memory,nullptr);qaSpatial.release();e.release();for(auto s:ready)a.DestroySemaphore(device,s,nullptr);if(fence)a.DestroyFence(device,fence,nullptr);if(workFence)a.DestroyFence(device,workFence,nullptr);if(pool)a.DestroyCommandPool(device,pool,nullptr);if(swapchain)a.DestroySwapchainKHR(device,swapchain,nullptr);a.DestroyDevice(device,nullptr);}if(surface)vkDestroySurfaceKHR(instance,surface,nullptr);if(instance)vkDestroyInstance(instance,nullptr);}
  void init(ANativeWindow* window){
   char validation[PROP_VALUE_MAX]{};__system_property_get("debug.thorfg.validate",validation);bool validate=validation[0]=='1';
   const char* ex[]={"VK_KHR_surface","VK_KHR_android_surface",VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME};VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};app.pApplicationName="Thor Native FG Demo";app.apiVersion=VK_API_VERSION_1_1;VkInstanceCreateInfo ci{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};ci.pApplicationInfo=&app;ci.enabledExtensionCount=validate?3:2;ci.ppEnabledExtensionNames=ex;
@@ -68,13 +68,18 @@ struct Demo {
   uint32_t index=0;a.ResetFences(device,1,&fence);auto result=a.AcquireNextImageKHR(device,swapchain,100000000,VK_NULL_HANDLE,fence,&index);if(result==VK_TIMEOUT||result==VK_NOT_READY)return true;if(result!=VK_SUCCESS&&result!=VK_SUBOPTIMAL_KHR)return false;requireVk(a.WaitForFences(device,1,&fence,VK_TRUE,UINT64_MAX),"QaAcquire");
   begin();e.barrier(cmd,images[index],VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL,0,VK_ACCESS_TRANSFER_WRITE_BIT);
   struct{int32_t size[2];float time;int32_t cut;} push{{640,360},sceneTime,sceneCut};
-  a.CmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,scene.pipeline);a.CmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,scene.layout,0,1,&sceneSet,0,nullptr);a.CmdPushConstants(cmd,scene.layout,VK_SHADER_STAGE_COMPUTE_BIT,0,16,&push);
   VkImageBlit blit{};blit.srcSubresource=blit.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};blit.srcOffsets[1]={640,360,1};blit.dstOffsets[1]={int32_t(extent.width),int32_t(extent.height),1};
+  // Prepare reference work before establishing the application state under
+  // test, so the reference itself cannot mask or invalidate state restoration.
+  char modelProperty[PROP_VALUE_MAX]{};__system_property_get("persist.thorfg.sr_model",modelProperty);auto qaModel=!std::strcmp(modelProperty,"neural2d")?SpatialModel::Neural2D:SpatialModel::Sgsr1;
+  if(!qaSpatial.a)qaSpatial.initSpatial(a,e.memory,{640,360},extent,qaModel);
+  qaSpatial.recordSpatial(cmd,source.image,VK_IMAGE_LAYOUT_GENERAL,blit);
+  a.CmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,scene.pipeline);a.CmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,scene.layout,0,1,&sceneSet,0,nullptr);a.CmdPushConstants(cmd,scene.layout,VK_SHADER_STAGE_COMPUTE_BIT,0,16,&push);
   // This is the unmodified application's bilinear blit. Only the external layer
   // may replace it. Compare its actual swapchain pixels with the reference SR.
   a.CmdBlitImage(cmd,source.image,VK_IMAGE_LAYOUT_GENERAL,images[index],VK_IMAGE_LAYOUT_GENERAL,1,&blit,VK_FILTER_LINEAR);
   e.barrier(cmd,images[index],VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_TRANSFER_WRITE_BIT,VK_ACCESS_TRANSFER_READ_BIT);
-  VkBufferImageCopy copy{};copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};copy.imageExtent={extent.width,extent.height,1};a.CmdCopyImageToBuffer(cmd,images[index],VK_IMAGE_LAYOUT_GENERAL,qaBuffer,1,&copy);copy.bufferOffset=qaFrameBytes;a.CmdCopyImageToBuffer(cmd,e.upCurrent.image,VK_IMAGE_LAYOUT_GENERAL,qaBuffer,1,&copy);
+  VkBufferImageCopy copy{};copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};copy.imageExtent={extent.width,extent.height,1};a.CmdCopyImageToBuffer(cmd,images[index],VK_IMAGE_LAYOUT_GENERAL,qaBuffer,1,&copy);copy.bufferOffset=qaFrameBytes;a.CmdCopyImageToBuffer(cmd,qaSpatial.upCurrent.image,VK_IMAGE_LAYOUT_GENERAL,qaBuffer,1,&copy);
   // Deliberately do not rebind the application's pipeline/descriptors. An
   // inserted SR compute pass must restore them and preserve partial constants.
   e.barrier(cmd,source.image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_TRANSFER_READ_BIT,VK_ACCESS_SHADER_WRITE_BIT);int32_t flip=sceneCut?0:1;a.CmdPushConstants(cmd,scene.layout,VK_SHADER_STAGE_COMPUTE_BIT,12,4,&flip);a.CmdDispatch(cmd,80,45,1);

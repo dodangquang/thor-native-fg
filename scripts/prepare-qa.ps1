@@ -1,3 +1,4 @@
+param([switch]$DebugLayerProbe)
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
 $bt='E:/DevTools/Android/Sdk/build-tools/35.0.0'
@@ -18,6 +19,7 @@ $probe=(Get-Content -LiteralPath "$root/build/AndroidManifest.xml" -Raw).Replace
 # of a separate validation provider. A fresh installation has no old implicit
 # visibility grant; declare it in the test probe rather than widening production.
 $probe=$probe.Replace('<queries>','<queries><package android:name="com.thor.validation"/>')
+if($DebugLayerProbe){$probe=$probe.Replace('android:debuggable="false"','android:debuggable="true"')}
 [IO.File]::WriteAllText("$qa/probe/AndroidManifest.xml",$probe)
 & "$bt/aapt.exe" package -f -M "$qa/probe/AndroidManifest.xml" -A "$root/build/assets" -I $androidJar -F "$qa/probe-unsigned.apk"
 & "$jdk/bin/jar.exe" uf "$qa/probe-unsigned.apk" -C "$root/build/dex" classes.dex -C "$root/build" lib

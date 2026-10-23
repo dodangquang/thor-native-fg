@@ -39,6 +39,16 @@ The requested equivalent function/quality remains the target; names and claims
 must accurately distinguish neural/temporal/spatial SR and measured results.
 
 Current verified baseline and gaps:
+- Version0.10 is installed with an optional Anime4K CNN S spatial path and
+  truthful per-submitted-image algorithm telemetry. The user's new automatic-OFF
+  preference was preserved; neural is unselected/GSR1 selected. Twelve small
+  GPU cases pass independent CPU matrix/crop/alpha/resize references with sync
+  validation;27existing FG/SR checks and24HUD checks also pass. A scoped debug
+  application ran actual neural SR plus FG, about30->60FPS with p95gap25ms,
+  six SR/compute-state readbacks, recreation and hot-toggle recovery. These
+  integration checks do not prove real-game quality, Turnip compatibility,
+  sustained benefit, temporal reconstruction or input latency. The generic
+  objective remains required; an anime-trained network is not its replacement.
 - Post0.9 neural experiments now have actual-device evidence. HTP initialization
   fails14001/ENODEV in shell/root; the firmware has a disabled cDSP node and
   CPU-only NNAPI. No firmware/kernel changes were made or universal hardware
@@ -46,11 +56,11 @@ Current verified baseline and gaps:
   direct naive/shared Vulkan implementations are slower and rejected. A smaller
   line-art-trained Anime4K CNN S Vulkan adapter costs1.643ms at540p->1080p and
   2.890ms at720p->1440p in isolated GPU timestamps. Its32x32 readback differs
-  from independent CPU matrix reference by at most1byte. This is an unintegrated
-  single-image candidate, not gameplay-quality or general DLSS completion.
+  from independent CPU matrix reference by at most1byte. This was initially an
+  unintegrated single-image candidate;0.10 adds the integration checks above.
   Native-game-ground-truth comparison, non-opaque alpha/crops/lifecycle, combined
   FG cost, temporal SR,3D content and all original requirements remain required.
-- Version 0.9 is installed and selected after an actual reboot. A cooperative
+- Version0.9 was the installed baseline after a verified reboot. A cooperative
   64-lane block-search implementation preserves the serial algorithm's outputs:
   GPU readbacks are bit-exact across motion/cut/reset fixtures and eight real
   Castlevania frames on custom Turnip. The motion range/quality is unchanged.

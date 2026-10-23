@@ -3,8 +3,8 @@
 #include <memory>
 
 struct Swap;
-struct SpatialFrame { VkExtent2D input{};bool pending=false; };
-struct SpatialHit {std::weak_ptr<Swap> swap;uint32_t index;VkExtent2D input;};
+struct SpatialFrame { VkExtent2D input{};bool pending=false;SpatialModel model=SpatialModel::Sgsr1; };
+struct SpatialHit {std::weak_ptr<Swap> swap;uint32_t index;VkExtent2D input;SpatialModel model=SpatialModel::Sgsr1;};
 struct ComputeBinding {
  enum Kind {Pipeline,Descriptors,Push} kind;
  VkPipeline pipeline{};VkPipelineLayout layout{};VkShaderStageFlags stages{};

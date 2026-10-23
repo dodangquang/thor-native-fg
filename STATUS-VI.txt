@@ -1,11 +1,63 @@
-THOR NATIVE FG — NHẬT KÝ KIỂM CHỨNG (CẬP NHẬT 0.9)
+THOR NATIVE FG — NHẬT KÝ KIỂM CHỨNG (CẬP NHẬT 0.10)
 
-HIỆN TẠI: APK 0.9 và bootstrap 0.3 đã cài, đã reboot kiểm tra tự động.
-Engine vẫn thử nghiệm; mục tiêu DLSS-like đầy đủ chưa đạt. Các mục 0.1–0.8
-phía dưới là lịch sử. Xem phần 0.9 và PRODUCT-REQUIREMENTS.txt.
+HIỆN TẠI: APK 0.10 và runtime50CD... đã cài; bootstrap0.3 giữ nguyên.
+Người dùng đã tắt tự động trong lúc làm việc; cập nhật giữ auto0, không bật
+lại. Neural đang bỏ chọn, GSR1 là lựa chọn hiện tại; manual enabled0.
+Engine vẫn thử nghiệm, mục tiêu DLSS-like đầy đủ chưa đạt. Các mục0.1–0.9
+phía dưới là lịch sử. Xem PRODUCT-REQUIREMENTS.txt để giữ đầy đủ yêu cầu.
 
-CẬP NHẬT 0.9 — GIẢM CHI PHÍ OPTICAL FLOW, GIỮ KẾT QUẢ THUẬT TOÁN
-NGHIÊN CỨU TIẾP SAU 0.9 — CHƯA THAY APK ĐANG CÀI
+CẬP NHẬT 0.10 — NEURAL SR ĐÃ TÍCH HỢP VÀ CHẠY CÙNG FG TRONG QA
+- Thêm lựa chọn Neural2D/GSR1 trong app, mặc định GSR1. Model dùng Anime4K
+  CNN S,4 convolution và shuffle2x trên Vulkan, không thêm QNN/ONNX runtime.
+  Nếu đầu ra khác2x, resize RGB neural và lấy alpha trực tiếp từ ảnh gốc.
+  Model chuyên nét vẽ, chỉ dùng một ảnh; không gọi đây là temporal DLSS.
+- Engine spatial nhận ảnh render thấp/crop của ứng dụng; layer vẫn giữ FG
+  riêng. Model của pass được lưu theo command buffer/image đã submit, báo
+  sa=1 trên THOR_METRICS khi thực sự dùng neural. Không lấy checkbox làm bằng
+  chứng SR đang chạy.24kiểm thử Java telemetry/HUD qua, ô vẫn hai số Gốc|FG.
+-6fixture CPU độc lập đọc ma trận gốc, mỗi fixture chạy2lượt GPU: alpha không
+  opaque, crop, kích thước lẻ, tỷ lệ2x/1.5x/2.5x và reuse.12/12 qua với sai số
+  RGB tối đa2mức8-bit, alpha tối đa1mức ở lượt cuối, có Khronos+sync validation,
+  không yêu cầu optional
+  float16/image features của app. Log neural-integrated-gpu-validation.txt.
+- Fixture đầu phát hiện2lỗi: image view của ảnh nguồn test thiếu sampled usage,
+  và alpha qua2bộ lọc8-bit ở tỷ lệ lẻ lệch2mức. Đã sửa usage của test và sửa
+  đường cuối để alpha chỉ lấy từ ảnh gốc một lần. Không nới ngưỡng alpha để
+  che lỗi. Giữ neural-integrated-before-alpha-fix.txt làm bằng chứng.
+-27/27 kiểm thử GPU FG/GSR1 cũ vẫn qua. Không đổi thuật toán FG của0.9.
+- Probe ứng dụng debuggable nạp đúng layer mới từ APK riêng, không đổi provider
+  root của các game. PID8491:6/6 external SR readback khớp reference và6/6
+  compute-state qua sau activity recreation. Hot FG OFF/ON có5cửa sổ phục hồi
+  với SR neural, generated và display_valid. Toàn log cuối không có VUID,
+  sync hazard hoặc validation error. neural-external-final-lifecycle.txt.
+- Trong QA này nguồn640x360, xuất1920x851, SR sa=1 và FG cùng chạy: khoảng
+  30FPS nguồn→60FPS hiển thị, p95gap khoảng25ms; chưa phải pacing hoàn hảo.
+  So khớp layer với reference kiểm đường tích hợp; fixture CPU nhỏ kiểm toán
+  học độc lập. Không dùng kết quả này thay kiểm chất lượng game/native ground
+  truth, custom Turnip, SR+FG sustained hoặc input latency.
+- Đã sửa thứ tự công việc reference trong QA: reference chạy trước khi bind
+  trạng thái ứng dụng cần kiểm. Không bind lại sau hook để che lỗi restore.
+  Log neural-external-sr-fg.txt là lượt QA cũ bị chính reference đổi state;
+  bản đã sửa và được chọn là neural-external-final-lifecycle.txt.
+- Hai thuật toán dùng cùng điều kiện nhận low-res blit. Cấu hình DroidDeck gốc
+  có thể upscale trước Thor, vẫn cần đường nhận ảnh thấp/preset phù hợp; chưa
+  tự đổi cấu hình game/giả lập. Không sửa save hay session.xml trong lượt này.
+- Đã khôi phục chính xác4global GPU settings và các override từ snapshot mới,
+  gỡ3APK QA. Sau đó xác nhận prefs auto_enabled=false trước/sau cập nhật app.
+  Thử checkbox neural bằng UI, đóng/mở app vẫn giữ; đã trả về bỏ chọn/GSR1.
+  Runtime bất biến50CD... cài sẵn; APK cài thực kéo về có SHA khớp file phát.
+  system_server2170 và SurfaceFlinger2301 giữ nguyên, không reboot lượt này.
+- APK0.10 SHA256:
+ 252234AFB91845BE5962DF73FAAA99D88B83E58EE59186CC414B657E9FFA21CD
+  Native SHA256:
+ 50CD38BDA247C810F5AD21071547317D81C0C02747033CAEFC8AEC1F59496EAF
+  Assets của controller/runtime có mã nguồn và license Anime4K/SGSR1.
+  Bước tiếp: preset SR độc lập có thể phục hồi cho DroidDeck, kiểm thử game
+  bằng backup mới của dữ liệu hiện tại, so chất lượng với native/bilinear/GSR1,
+  rồi tiếp tục temporal SR, GLES, cuts/HUD/occlusion và các giả lập còn lại.
+
+LỊCH SỬ 0.9 — GIẢM CHI PHÍ OPTICAL FLOW, GIỮ KẾT QUẢ THUẬT TOÁN
+NGHIÊN CỨU SAU 0.9, TRƯỚC KHI TÍCH HỢP 0.10
 - Đã dựng bộ export/đối chiếu và probe Neural SR trong experiments/neural.
   NNAPI trên Thor chỉ có CPU reference. QNN HTP lỗi 14001/ENODEV cả shell và
   root; firmware báo QCS8550, soc_id603, node cDSP status 'no', không có cDSP
@@ -21,7 +73,7 @@ NGHIÊN CỨU TIẾP SAU 0.9 — CHƯA THAY APK ĐANG CÀI
   Mạng dành nét vẽ, chỉ xử lý một ảnh; chưa chứng minh chất lượng game 3D,
   alpha/crop/resize/lifecycle hoặc SR+FG đồng thời. Chưa phải temporal DLSS.
   Mã nguồn gốc MIT được giữ tại third_party/anime4k. Xem README của experiment
-  và research/neural-output-verification.json. APK/runtime đang dùng vẫn 0.9.
+  và research/neural-output-verification.json. Ở lượt nghiên cứu đó vẫn giữ0.9.
 
 KẾT QUẢ BẢN 0.9 ĐÃ CÀI
 - Mỗi workgroup xử lý một block, chia 81 ứng viên tìm chuyển động cho 64 lane

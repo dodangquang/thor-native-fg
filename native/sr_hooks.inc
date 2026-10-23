@@ -88,11 +88,12 @@ static bool srReplace(Device& d,VkCommandBuffer cmd,VkImage src,VkImageLayout sr
   size_t slot=command.next;
   if(command.engines.size()<=slot)command.engines.resize(slot+1);
   auto& engine=command.engines[slot];VkExtent2D input{uint32_t(width),uint32_t(height)};
-  if(!engine||engine->input.width!=input.width||engine->input.height!=input.height||engine->output.width!=swap->extent.width||engine->output.height!=swap->extent.height){
-   auto replacement=std::make_unique<Engine>();replacement->initSpatial(d.a,d.memory,input,swap->extent);engine=std::move(replacement);
-   LOG("SR_PIPELINE input=%ux%u output=%ux%u source=application_blit algorithm=SGSR1 (spatial, not temporal DLSS)",input.width,input.height,swap->extent.width,swap->extent.height);
+  char modelProperty[PROP_VALUE_MAX]{};__system_property_get("persist.thorfg.sr_model",modelProperty);SpatialModel model=!std::strcmp(modelProperty,"neural2d")?SpatialModel::Neural2D:SpatialModel::Sgsr1;
+  if(!engine||engine->spatialModel!=model||engine->input.width!=input.width||engine->input.height!=input.height||engine->output.width!=swap->extent.width||engine->output.height!=swap->extent.height){
+   auto replacement=std::make_unique<Engine>();replacement->initSpatial(d.a,d.memory,input,swap->extent,model);engine=std::move(replacement);
+   LOG("SR_PIPELINE input=%ux%u output=%ux%u source=application_blit algorithm=%s (single-image SR, not temporal DLSS)",input.width,input.height,swap->extent.width,swap->extent.height,spatialModelName(model));
   }
-  command.hits.push_back({swap,index,input});command.next++;
+  command.hits.push_back({swap,index,input,model});command.next++;
   engine->recordSpatial(cmd,src,srcLayout,region);
   VkImageBlit output=region;output.srcSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};output.srcOffsets[0]={0,0,0};output.srcOffsets[1]={int32_t(swap->extent.width),int32_t(swap->extent.height),1};
   d.a.CmdBlitImage(cmd,engine->upCurrent.image,VK_IMAGE_LAYOUT_GENERAL,dst,dstLayout,1,&output,VK_FILTER_NEAREST);
@@ -107,7 +108,7 @@ static VKAPI_ATTR void VKAPI_CALL srBlit(VkCommandBuffer cmd,VkImage src,VkImage
 static std::shared_ptr<Device> srQueueDevice(VkQueue queue){std::lock_guard<std::mutex> lock(globalMutex);auto found=queues.find(queue);return found==queues.end()?nullptr:found->second.device;}
 static void srSubmitted(Device& d,VkCommandBuffer cmd){
  auto command=d.appCommands.find(cmd);if(command==d.appCommands.end())return;
- for(const auto& hit:command->second.hits)if(auto swap=hit.swap.lock())if(hit.index<swap->spatialFrames.size())swap->spatialFrames[hit.index]={hit.input,true};
+ for(const auto& hit:command->second.hits)if(auto swap=hit.swap.lock())if(hit.index<swap->spatialFrames.size())swap->spatialFrames[hit.index]={hit.input,true,hit.model};
 }
 static VKAPI_ATTR VkResult VKAPI_CALL srSubmit(VkQueue queue,uint32_t count,const VkSubmitInfo* submits,VkFence fence){
  auto d=srQueueDevice(queue);if(!d)return VK_ERROR_INITIALIZATION_FAILED;

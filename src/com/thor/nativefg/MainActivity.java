@@ -17,10 +17,11 @@ import java.util.concurrent.Executors;
 public class MainActivity extends Activity {
     private TextView status;
     private Spinner packages;
-    private CheckBox upscale;
+    private CheckBox upscale,neural;
     private Switch automatic;
     private boolean syncingAuto=false;
     private boolean syncingSr=false;
+    private boolean syncingModel=false;
     private final ArrayList<String> ids=new ArrayList<>();
     private final java.util.concurrent.ExecutorService worker=Executors.newSingleThreadExecutor();
     private final String[] keys={"enable_gpu_debug_layers","gpu_debug_app","gpu_debug_layers","gpu_debug_layer_app"};
@@ -31,12 +32,15 @@ public class MainActivity extends Activity {
         LinearLayout page=new LinearLayout(this);page.setOrientation(1);page.setPadding(36,28,36,24);page.setBackgroundColor(Color.rgb(12,20,33));
         ScrollView scroll=new ScrollView(this);scroll.addView(page);setContentView(scroll);
         TextView title=text("THOR NATIVE FG",26);title.setTextColor(Color.rgb(87,222,212));page.addView(title);
-        page.addView(text("Frame gen độc lập + GSR 1 • Bản thử nghiệm 0.9",16));
+        page.addView(text("Frame gen + SR độc lập • Bản thử nghiệm 0.10",16));
         page.addView(text("Không phải NVIDIA DLSS. Chưa xác nhận tương thích mọi giả lập hay tăng FPS thực tế. Layer hỗ trợ thử nghiệm Vulkan FIFO, SDR RGBA/BGRA8; OpenGL ES và driver nạp riêng có thể không đi qua layer.",15));
         page.addView(text("Engine FG thuộc Thor Native FG. Khi thử, tắt FG tích hợp trong giả lập để tránh nội suy hai lần. GSR 1 xử lý ảnh render thấp khi đường hiển thị Vulkan phù hợp; hãy đặt độ phân giải thấp trong game/giả lập. Chỉ báo ON khi có pass upscale được gửi thật.",15));
         button(page,"Chạy cảnh mẫu Vulkan · GSR 1 + FG 2x",()->startActivity(new Intent(this,DemoActivity.class)));
-        upscale=new CheckBox(this);upscale.setText("Upscale GSR 1 khi game render độ phân giải thấp");upscale.setTextColor(Color.rgb(223,233,246));upscale.setChecked(getSharedPreferences("thor",MODE_PRIVATE).getBoolean("upscale",true));page.addView(upscale);
+        upscale=new CheckBox(this);upscale.setText("Upscale khi game render độ phân giải thấp");upscale.setTextColor(Color.rgb(223,233,246));upscale.setChecked(getSharedPreferences("thor",MODE_PRIVATE).getBoolean("upscale",true));page.addView(upscale);
         upscale.setOnCheckedChangeListener((view,checked)->{if(syncingSr)return;if(AutoMode.requested(this)){runJob(()->AutoMode.configure(this,true,checked)+"\nĐổi SR: mở lại giả lập nếu các lệnh GPU cũ vẫn được dùng.");}else AutoMode.preferences(this).edit().putBoolean("upscale",checked).apply();});
+        neural=new CheckBox(this);neural.setText("Neural SR cho nét vẽ / game 2D (thử nghiệm)");neural.setTextColor(Color.rgb(223,233,246));neural.setChecked(AutoMode.preferences(this).getBoolean("neural_sr",false));page.addView(neural);
+        page.addView(text("Bỏ chọn để dùng GSR1. Neural dùng mạng Anime4K CNN S, chưa xác nhận chất lượng cho mọi game 3D. Sau khi đổi, lưu game rồi mở lại giả lập. App báo thuật toán đã chạy trong phần trạng thái.",14));
+        neural.setOnCheckedChangeListener((view,checked)->{if(syncingModel)return;runJob(()->AutoMode.setNeural(this,checked));});
         automatic=new Switch(this);automatic.setText("Tự bật FG khi mở game / giả lập");automatic.setTextColor(Color.rgb(223,233,246));automatic.setChecked(AutoMode.requested(this));page.addView(automatic);
         automatic.setOnCheckedChangeListener((view,checked)->{if(syncingAuto)return;if(busy){syncAutoSwitch();return;}final boolean sr=upscale.isChecked();runJob(()->{String result=AutoMode.configure(this,checked,sr);if(checked)runOnUiThread(()->showOverlay());return result;});});
         button(page,"Chọn game / giả lập tự động",()->editAutoApplications());
@@ -102,6 +106,7 @@ public class MainActivity extends Activity {
             if(!debuggable&&!module)throw new IOException("Ứng dụng release này cần module Zygisk Thor Native FG và một lần khởi động lại. Chưa thể bật chỉ bằng quyền su. Module nằm tại E:\\ThorNative\\ThorNativeFG-Zygisk-experimental.zip trên PC.");
             saveBackup();
             RuntimeProvider.ensure(this);
+            root("setprop persist.thorfg.sr_model "+AutoMode.model(this));
             if(AutoMode.requested(this))AutoMode.configure(this,false,sr);
             if(id.length()>90)throw new IOException("Package name too long for Android property");
             if(module)root("setprop debug.thorfg.target "+id);
@@ -141,5 +146,5 @@ public class MainActivity extends Activity {
         return summary+"\n\nTarget / active / PID:\n"+config+"\n"+pid+"\n\n"+logs+"\n\nNếu chưa có INSTANCE/DEVICE/SWAPCHAIN thì chưa xác nhận layer hoạt động. COUNTERS là số yêu cầu present; không phải FPS hiển thị hay độ trễ đã đo.";
     }
     interface Work {String run()throws Exception;}
-    private void runJob(Work work){busy=true;upscale.setEnabled(false);automatic.setEnabled(false);status.setText("Đang xử lý… Nếu Magisk hỏi, cần cấp quyền root để thay cấu hình layer.");worker.execute(()->{String result;try{result=work.run();}catch(Exception e){result="Lỗi: "+e.getMessage();}final String value=result;runOnUiThread(()->{busy=false;syncAutoSwitch();syncingSr=true;upscale.setChecked(AutoMode.preferences(this).getBoolean("upscale",true));syncingSr=false;upscale.setEnabled(true);automatic.setEnabled(true);status.setText(value);});});}
+    private void runJob(Work work){busy=true;upscale.setEnabled(false);neural.setEnabled(false);automatic.setEnabled(false);status.setText("Đang xử lý… Nếu Magisk hỏi, cần cấp quyền root để thay cấu hình layer.");worker.execute(()->{String result;try{result=work.run();}catch(Exception e){result="Lỗi: "+e.getMessage();}final String value=result;runOnUiThread(()->{busy=false;syncAutoSwitch();syncingSr=true;upscale.setChecked(AutoMode.preferences(this).getBoolean("upscale",true));syncingSr=false;syncingModel=true;neural.setChecked(AutoMode.preferences(this).getBoolean("neural_sr",false));syncingModel=false;upscale.setEnabled(true);neural.setEnabled(true);automatic.setEnabled(true);status.setText(value);});});}
 }

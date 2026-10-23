@@ -13,6 +13,13 @@ final class AutoMode {
     }
     static SharedPreferences preferences(Context context){return context.getSharedPreferences("thor",Context.MODE_PRIVATE);}
     static boolean requested(Context context){return preferences(context).getBoolean("auto_enabled",false);}
+    static String model(Context context){return preferences(context).getBoolean("neural_sr",false)?"neural2d":"sgsr1";}
+    static synchronized String setNeural(Context context,boolean enabled)throws Exception{
+        String selected=enabled?"neural2d":"sgsr1";
+        RootShell.run("set -e\nsetprop persist.thorfg.sr_model "+selected+"\ntest \"$(getprop persist.thorfg.sr_model)\" = "+selected);
+        preferences(context).edit().putBoolean("neural_sr",enabled).apply();
+        return "Đã chọn "+(enabled?"Neural 2D cho nét vẽ/game 2D (thử nghiệm)":"GSR1")+". Lưu game và mở lại giả lập để đổi thuật toán. Lựa chọn được giữ qua reboot; SR chỉ hoạt động khi nhận được ảnh render thấp phù hợp.";
+    }
     static String foregroundScript(){
         // Consume the whole dump: an early pipe close can make dumpsys emit a
         // Binder 'Broken pipe' error into the controller's merged root output.
@@ -45,7 +52,7 @@ final class AutoMode {
         String module="/data/adb/modules/thor_native_fg_bootstrap";
         String script="set -e\n"+(enabled?"test -f "+module+"/module.prop\ntest ! -f "+module+"/disable\n":"")+"test -f "+RootShell.quote(provider+"/libVkLayer_ThorFG.so")+
             "\nmkdir -p "+DIRECTORY+"\nchmod 700 "+DIRECTORY+"\numask 077\nprintf %s "+RootShell.quote(config.toString())+" > "+FILE+".tmp\nchmod 600 "+FILE+".tmp\nchown 0:0 "+FILE+".tmp\nmv -f "+FILE+".tmp "+FILE+
-            "\nsetprop debug.thorfg.auto_sr "+(sr?"1":"0")+"\nsetprop debug.thorfg.auto "+(enabled?"1":"0")+"\ngetprop sys.thorfg.bootstrap\n";
+            "\nsetprop persist.thorfg.sr_model "+model(context)+"\nsetprop debug.thorfg.auto_sr "+(sr?"1":"0")+"\nsetprop debug.thorfg.auto "+(enabled?"1":"0")+"\ngetprop sys.thorfg.bootstrap\n";
         String version=RootShell.run(script);preferences(context).edit().putBoolean("auto_enabled",enabled).putBoolean("upscale",sr).apply();
         if(!enabled)return "Đã tắt tự động. Layer đã nạp sẽ ngừng FG; lần mở mới không được tự nạp nữa. Chế độ bật thủ công có cấu hình riêng.";
         if(!version.equals("2")&&!version.equals("3"))return "Đã lưu tự động cho "+count+" ứng dụng. Cần module bootstrap 0.2 trở lên và khởi động lại máy để nạp bộ kích hoạt mới. Chưa xác nhận tự động hoạt động. Không tự đóng game đang chạy.";

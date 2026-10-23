@@ -8,6 +8,8 @@ struct Pipeline {VkPipeline pipeline{};VkPipelineLayout layout{};VkDescriptorSet
 // Seven optional timestamps delimit six input stages. The owner resets the
 // query range and waits for this submission before reading it.
 struct EngineTimings {VkQueryPool pool{};uint32_t first=0;};
+enum class SpatialModel:uint32_t {Sgsr1=0,Neural2D=1};
+inline const char* spatialModelName(SpatialModel model){return model==SpatialModel::Neural2D?"Anime4K_CNN_S":"SGSR1";}
 struct Engine {
  Api* a{};VkPhysicalDeviceMemoryProperties memory{};VkExtent2D input{},output{},grid{};
  Image history[2],flow,mid,upCurrent,upMid;
@@ -16,6 +18,8 @@ struct Engine {
  VkDescriptorSet analyzeSets[2]{},qualitySet{};
  VkDescriptorSet flowSets[2]{},interpolateSets[2]{},upSets[3]{};
  bool initialized=false,hasHistory=false,cooperativeFlow=true;int write=0;
+ SpatialModel spatialModel=SpatialModel::Sgsr1;
+ Image neuralFeatures[2],neural2x;Pipeline neuralPipes[6];VkDescriptorSet neuralSets[6]{};
  uint32_t memoryType(uint32_t bits,VkMemoryPropertyFlags flags);
  Image createImage(VkExtent2D size,VkFormat format,VkImageUsageFlags usage);
  Pipeline createPipeline(const uint32_t* code,size_t bytes,const std::vector<VkDescriptorType>& bindings,uint32_t pushBytes);
@@ -26,7 +30,7 @@ struct Engine {
  void init(Api& api,const VkPhysicalDeviceMemoryProperties& mem,VkExtent2D in,VkExtent2D out,bool cooperative=true);
  // Spatial-only path for a real low-resolution application blit. No FG images
  // or CPU readback are allocated by this path.
- void initSpatial(Api& api,const VkPhysicalDeviceMemoryProperties& mem,VkExtent2D in,VkExtent2D out);
+ void initSpatial(Api& api,const VkPhysicalDeviceMemoryProperties& mem,VkExtent2D in,VkExtent2D out,SpatialModel model=SpatialModel::Sgsr1);
  void recordSpatial(VkCommandBuffer cmd,VkImage source,VkImageLayout sourceLayout,const VkImageBlit& region);
  void barrier(VkCommandBuffer cmd,VkImage im,VkImageLayout from,VkImageLayout to,VkAccessFlags src,VkAccessFlags dst);
  void blit(VkCommandBuffer cmd,VkImage source,VkExtent2D sourceSize,VkImage destination,VkExtent2D destSize);

@@ -9,3 +9,5 @@
 *.xml text eol=lf
 *.ps1 text eol=crlf
 *.prop text eol=lf
+# Preserve the exact upstream model bytes checked by the shader generator.
+third_party/anime4k/Anime4K_Upscale_CNN_x2_S.glsl -text

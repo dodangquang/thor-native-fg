@@ -1,9 +1,20 @@
-THOR NATIVE FG 0.9 — BẢN THỬ NGHIỆM ĐỘC LẬP
+THOR NATIVE FG 0.10 — BẢN THỬ NGHIỆM ĐỘC LẬP
 
-Máy đã cài bản 0.9 và kiểm tra tự nạp sau reboot. APK trên ổ E:
-ThorNativeFG-v0.9-experimental.apk; ThorNativeFG-debug.apk cùng bản này.
-Bản sao controller 0.7 vẫn giữ để phục hồi. Không cần mở app Thor trước mỗi
-lần chơi khi chế độ tự động đang bật. Xem chi tiết trong STATUS-VI.txt.
+Máy đã cài bản 0.10. APK trên ổ E: ThorNativeFG-v0.10-experimental.apk;
+ThorNativeFG-debug.apk cùng bản này. Bản 0.9 vẫn giữ để phục hồi.
+Hiện công tắc tự động đang TẮT theo lựa chọn mới quan sát trên máy; cập nhật
+giữ nguyên lựa chọn đó. SR/GSR1 được chọn, neural đang bỏ chọn. Không có FG
+tự động hoạt động chỉ vì đã cài APK. Xem STATUS-VI.txt để biết bằng chứng.
+
+Lựa chọn mới: 'Neural SR cho nét vẽ / game 2D (thử nghiệm)'. Bỏ chọn để dùng
+GSR1. Neural dùng Anime4K CNN S, tái tạo 2x rồi resize khi cần; alpha được
+lấy từ ảnh gốc. Chưa chứng minh chất lượng neural cho mọi game 3D. Sau khi
+đổi thuật toán, lưu game rồi thoát/mở lại giả lập. Lựa chọn đã thử giữ qua
+lần đóng/mở app; giá trị được lưu bằng thuộc tính persist của Android.
+Phần đọc trạng thái báo 'Neural 2D ON' chỉ khi khung hình có pass neural thật.
+Ô FPS vẫn chỉ có Gốc | FG. Việc chọn neural không tự thay cài đặt giả lập.
+Trong QA, neural SR và FG chạy cùng nhau từ nguồn khoảng30FPS ra khoảng60FPS;
+chưa dùng số này làm benchmark game hoặc khẳng định chất lượng DLSS.
 
 Bản 0.9 giảm chi phí optical flow, giữ nguyên thuật toán. Trong title menu
 Castlevania trên DroidDeck: GPU input FG khoảng 2 ms thay vì 7 ms; hai lượt
@@ -26,7 +37,7 @@ Bootstrap0.3 kiểm tra thư viện còn tồn tại trước khi tự nạp; c�
 module. Lựa chọn game và master tự động vẫn được giữ trong file cấu hình root.
 
 Mở ứng dụng Thor Native FG trên Thor.
-CHẾ ĐỘ TỰ ĐỘNG (ĐÃ BẬT TRÊN THOR)
+CHẾ ĐỘ TỰ ĐỘNG (CÓ THỂ BẬT TRONG APP; HIỆN ĐANG TẮT)
 1. Giữ bật 'Tự bật FG khi mở game / giả lập'. Chỉnh các ứng dụng được chọn
    trong 'Chọn game / giả lập tự động'. Hiện nhận16ứng dụng đã cài trên máy.
 2. Sau đó mở game/giả lập từ launcher bình thường; không cần mở Thor mỗi lần.
