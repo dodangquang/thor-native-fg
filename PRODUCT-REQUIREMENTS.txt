@@ -39,6 +39,14 @@ The requested equivalent function/quality remains the target; names and claims
 must accurately distinguish neural/temporal/spatial SR and measured results.
 
 Current verified baseline and gaps:
+- Post0.12 actual Eden testing found and fixed asynchronous presentation advice
+  leaking into successful image acquisition, causing repeated swapchain rebuilds.
+  Actual custom-Turnip game now presents ~30->60FPS asynchronously without that
+  loop. A2sec physical camera turn rejects61unreliable pairs and recovers to~60.
+  This proves rejection/recovery, not inserted-frame visual quality. Nine WSI
+  checks pass. See tests/ASYNC-STATUS-QA.txt for exact builds/runtime and limits.
+  Eden fence default retained pending better pacing evidence. GSR2 and EdenSR
+  are still unintegrated; every full product requirement remains required.
 - Post0.12 source now has a reusable cooperative temporal backend with per-slot
   UBO/descriptors/output, actual fence retirement and cancel/commit history.
  28host sequence checks,32GPU lifecycle checks and27legacy FG/SR checks pass.

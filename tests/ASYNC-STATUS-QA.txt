@@ -1,0 +1,59 @@
+2026-10-23 Eden Nightly asynchronous presentation status fix (goal unfinished)
+
+Root cause established from source + actual driver evidence:
+Android's present returns VK_SUBOPTIMAL_KHR on this surface. Eden tolerates this
+in Swapchain::Present, but AcquireNextImage marks its swapchain suboptimal and
+requests recreation. Thor's old async bridge turned successful native acquires
+into VK_SUBOPTIMAL merely because a previous present returned that advisory.
+This created the repeated swapchain/pipeline loop. FIFO alone did not fix it.
+Official renderer source inspected from git.eden-emu.dev master; exact installed
+version is6e1b120 and current upstream is not assumed byte-identical to its APK.
+
+Fix: native acquisition results remain native, negative deferred errors still
+interrupt guarded acquisition, previous presentation advice returns on the next
+asynchronous present. Successful worker completion now clears old advice. Errors
+retain the existing stop/consume path. WSI advisory logging is limited to four
+messages per process in final build, with negative errors still logged.
+
+Actual device regression candidate:
+APK DD7E6A3621596A1FA45F72600B4490614798C20C918B8EEF31ED3F5E5441B92A
+runtime DB92DDDCBCD7B9EE3439D962DBDDB8B6C3325EA61A052A6CD023E9E8C10BF259
+PID20692, Turnip26.1.3, Another Crab's Treasure, explicit presenter=shared,
+VSyncFIFO, built-inFGoff. Fresh backup priority-eden-diagnostic-20261023-async-status-1
+before launch. Candidate native contains same status fix as final; final adds
+bounded diagnostic logs. One SWAPCHAIN_INPUT in captured startup/live log; actual
+display timing ~30source/~60display with async_shared. Driver SUBOPTIMAL present
+is captured; no synthetic WSI_ACQUIRE SUBOPTIMAL captured. Compare earlier
+priority-eden-fifo logs showing continuous recreation under the original bridge.
+This is a real emulator regression test; unit guard checks alone did not cover
+the removed conversion in the outer hook.
+
+Camera2 physical Odin event9 ABS_Z32767 held2.09sec then reset0 with shell trap.
+First camera attempt was paused and is INVALID. Human confirmed they paused
+to reduce heat and explicitly asked testing to continue. Second attempt actually
+changed camera view (before/after PNGs). Uptime23326.18..23328.27:
+flow_skips228->289 (61 rejected pairs), flags8 (FAST_MOTION), generated output
+0in one full window, display~29.99 with source~29.98 during motion; recovery
+~59.97 by23331.279. No cut was inferred from this camera case. This establishes
+actual rejection/recovery, not visual quality of individual inserted frames.
+Read research/eden-async-camera-summary.json and associated exact-window logs.
+
+9 WSI guard checks pass on Thor including presentation advice vs native acquire
+advice, timeout/unblocking, native SUBOPTIMAL, deferred surface/device errors.
+Compilation/signing and diffcheck passed. No GPU math/shader change in this fix.
+
+Final controller APK BF752F315FDF0B04326178C00BB4190BD0573080EA93A9495264DDF36F0298E0
+installed. Bundled final runtime A25DD03885F46D08D102BEC0BC172447BAB1523107A4EDD567CFA29FA7A0E8BB
+not forced into the existing game. Game PID20692 retains immutable DB92 runtime
+with verified fix; no game restart, save restoration or process killing after
+human played. Eden is paused; layer manual0/auto0/sr0, original VSyncImmediate0
+restored through Eden UI, presenter/fg overrides empty, global GPUdebug0/others
+absent, HUDstopped, manual snapshot cleared. Audit eden-async-status-cleanup.txt.
+All runtime APKs retained. The current game/save may contain newer HUMAN progress;
+all archived saves are now stale and must never be used as a new baseline.
+
+Eden fence default retained: it had more even gaps in prior paired observations
+(~16.8ms p95 vs25.2ms in initial async title sample). These are uncontrolled
+scene/clock runs, not a performance ranking or input-latency measurement. Default
+can change only after appropriate pacing/latency/quality evaluation. SR remained0;
+GSR2, native-reference quality, all-emulator/GLES and sustained requirements remain.

@@ -79,7 +79,8 @@ static VkResult layerPresent(Device& d,VkQueue queue,const VkPresentInfoKHR* inf
  std::vector<std::unique_lock<std::mutex>> wsiLocks;for(auto& swap:swaps)wsiLocks.emplace_back(swap->wsiMutex);
  std::unique_lock<std::mutex> lock(d.privateQueueMutex,std::defer_lock);if(d.sharedPresenter||queue==d.privateQueue)lock.lock();
  auto result=d.a.QueuePresentKHR(queue,info);
- if(result!=VK_SUCCESS)LOG("WSI_PRESENT result=%d swaps=%u",result,info->swapchainCount);
+ static std::atomic<unsigned> advisoryLogs{0};
+ if(result<0||(result>0&&advisoryLogs.fetch_add(1)<4))LOG("WSI_PRESENT result=%d swaps=%u",result,info->swapchainCount);
  return result;
 }
 static void drainDevice(Device& d){
@@ -404,11 +405,15 @@ static VKAPI_ATTR VkResult VKAPI_CALL present(VkQueue queue,const VkPresentInfoK
   // Only owned handles/scalars enter the job. No application arrays, pResults,
   // pNext chains or stack pointers outlive vkQueuePresentKHR.
   try{s.worker.submit([d,swap,queue,original,start,previousWaitMs]() noexcept {
-   try{auto result=finishPreparedFrame(d,swap,queue,original,start,previousWaitMs);if(result!=VK_SUCCESS)swap->deferredResult=result;}
+   try{swap->deferredResult=finishPreparedFrame(d,swap,queue,original,start,previousWaitMs);}
    catch(const std::exception& error){LOG("ASYNC_ERROR %s",error.what());swap->deferredResult=VK_ERROR_INITIALIZATION_FAILED;}
    catch(...){LOG("ASYNC_ERROR unknown exception");swap->deferredResult=VK_ERROR_INITIALIZATION_FAILED;}
   });}catch(const std::exception& error){LOG("ASYNC_FALLBACK worker unavailable: %s",error.what());s.asyncFrame=false;auto result=finishPreparedFrame(d,swap,queue,original,start,previousWaitMs);if(info->pResults)info->pResults[0]=result;return result;}
-  if(info->pResults)info->pResults[0]=VK_SUCCESS;return VK_SUCCESS;
+  // A previous asynchronous presentation's advisory status belongs to this
+  // API, not vkAcquireNextImageKHR. Eden recreates on acquire SUBOPTIMAL but
+  // correctly tolerates presentation SUBOPTIMAL (e.g. Android preTransform).
+  auto result=deferred==VK_SUBOPTIMAL_KHR?VK_SUBOPTIMAL_KHR:VK_SUCCESS;
+  if(info->pResults)info->pResults[0]=result;return result;
  }
  auto result=finishPreparedFrame(d,swap,queue,original,start,previousWaitMs);if(info->pResults)info->pResults[0]=result;return result;
 }
@@ -419,7 +424,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL acquireNext(VkDevice device,VkSwapchainKHR
  if(!swap||(!d->privateQueue&&!d->sharedPresenter))return d->a.AcquireNextImageKHR(device,handle,timeout,semaphore,fence,index);
  auto result=guardedWsiAcquire(swap->wsiMutex,timeout,[&]{return d->a.AcquireNextImageKHR(device,handle,0,semaphore,fence,index);},[&]{return swap->deferredResult.load();});
  if(result!=VK_SUCCESS&&result!=VK_TIMEOUT&&result!=VK_NOT_READY)LOG("WSI_ACQUIRE result=%d deferred=%d",result,deferred);
- deferred=swap->deferredResult.load();return result==VK_SUCCESS&&deferred==VK_SUBOPTIMAL_KHR?deferred:result;
+ return result;
 }
 static VKAPI_ATTR VkResult VKAPI_CALL acquireNext2(VkDevice device,const VkAcquireNextImageInfoKHR* info,uint32_t* index){
  auto d=deviceFor(device);if(!d)return VK_ERROR_INITIALIZATION_FAILED;auto swap=findSwap(*d,info->swapchain);
@@ -427,7 +432,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL acquireNext2(VkDevice device,const VkAcqui
  auto fn=(PFN_vkAcquireNextImage2KHR)d->gdpa(device,"vkAcquireNextImage2KHR");if(!fn)return VK_ERROR_EXTENSION_NOT_PRESENT;
  if(!swap||(!d->privateQueue&&!d->sharedPresenter))return fn(device,info,index);auto changed=*info;changed.timeout=0;
  auto result=guardedWsiAcquire(swap->wsiMutex,info->timeout,[&]{return fn(device,&changed,index);},[&]{return swap->deferredResult.load();});
- deferred=swap->deferredResult.load();return result==VK_SUCCESS&&deferred==VK_SUBOPTIMAL_KHR?deferred:result;
+ return result;
 }
 static VKAPI_ATTR VkResult VKAPI_CALL deviceWait(VkDevice device){auto d=deviceFor(device);if(!d)return VK_ERROR_INITIALIZATION_FAILED;drainDevice(*d);return layerDeviceIdle(*d);}
 static VKAPI_ATTR VkResult VKAPI_CALL queueWait(VkQueue queue){

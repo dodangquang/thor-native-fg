@@ -25,6 +25,10 @@ int main(){
  check(failure.get()==VK_ERROR_OUT_OF_DATE_KHR,"deferred presentation failure interrupts an outstanding acquire");
  result=guardedWsiAcquire(mutex,UINT64_MAX,[]{return VK_SUBOPTIMAL_KHR;},ok);
  check(result==VK_SUBOPTIMAL_KHR,"native SUBOPTIMAL is returned with its acquired image");
+ calls=0;result=guardedWsiAcquire(mutex,UINT64_MAX,[&]{++calls;return VK_SUCCESS;},[]{return VK_SUBOPTIMAL_KHR;});
+ check(result==VK_SUCCESS&&calls==1,"presentation SUBOPTIMAL advisory does not synthesize an acquisition advisory");
+ result=guardedWsiAcquire(mutex,UINT64_MAX,[]{return VK_SUBOPTIMAL_KHR;},[]{return VK_SUBOPTIMAL_KHR;});
+ check(result==VK_SUBOPTIMAL_KHR,"native acquisition advisory survives an earlier presentation advisory");
  calls=0;result=guardedWsiAcquire(mutex,UINT64_MAX,[&]{++calls;return VK_SUCCESS;},[]{return VK_ERROR_DEVICE_LOST;});
  check(result==VK_ERROR_DEVICE_LOST&&!calls,"known device loss does not consume another image or semaphore");
  std::cout<<"RESULT checks="<<checks<<" failures=0\n";
