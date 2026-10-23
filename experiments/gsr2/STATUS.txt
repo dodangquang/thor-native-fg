@@ -1,4 +1,5 @@
 SGSR2 integration investigation — 2026-10-23
+Initial compile-only checkpoint below is historical; executed results follow.
 Upstream https://github.com/SnapdragonGameStudios/snapdragon-gsr
 Pinned commit d926f074bcb9d714e179f1ce0fcb9ee2eeb5074e
 Official README: sgsr/v2/README.md. Sources/license retained under research/sgsr2-pinned.
@@ -28,3 +29,44 @@ and measured GPU cost. Then an explicit per-renderer provider (emulator engine
 or guest-game integration) before enabling GSR2 in any real-game profile.
 Keep GSR1/bounded neural available for color-only sources. GSR2 is temporal SR;
 it does not implement the separate intermediate-frame generator.
+
+Executed checkpoint 2026-10-23 ~12:30+07:00:
+- New own-package GPU lab actually runs both temporal passes on stock Adreno740,
+  no optional float16 features, with own Khronos synchronization validation.
+  Pinned original sources/license, adapters, fixture generator, collector and
+  independent controls are now in experiments/gsr2. No product selector added.
+- Initial mediump run PID29066 produced entirely0xffffffff packed YCoCg and
+  yellow output. Same diagnostic runner with only highp adapter PID29888
+  produced8908distinct packed values and meaningful RGB. Do not call a clean
+  validation log proof of pixel correctness. Original failed outputs retained.
+- Further CPU constant control caught right/bottom texelFetch outside extent:
+  full-edge error39.766bytes versus CPU math. Explicitly bounded reads reduced
+  that to0.12545byte without changing tolerance. Padded-dispatch guards also
+  permit130x74->260x148 and960x540->1080p. Original sources stay unchanged.
+- Final native154f7109ec9c0b6b613298121b3f3bffcc1f3f075af8e9952fc087b9cb6fc1e9
+  passed32-frame runs: constant odd PID31312,1080p PID31628, moving128x72
+  PID31984 and per-frame-reset PID32202. All exact fixture/native identity,
+  no captured VUID/sync/fatal, all outputs/sizes checked, finite RGB.
+  Source byte control exact; decoded YCoCg max error0.0004884 versus CPU;
+  motion/exposure pass; resets0and16 bit-exact versus fresh-reset control.
+  All control comparisons use this same final native SHA. Audit output is
+  research/gsr2-control-audit.json. These are math/reset gates, not quality wins.
+- Corrected identity-camera flag is1 despite moving objects. Earlier runs
+  gs2-plane/gsr2-plane-reset used0 incorrectly; preserve as historical data.
+- Quality is unfavorable:128x72->256x144 rawGSR2 PSNR28.741dB vs bilinear33.349;
+  960x540->1920x1080 rawGSR2 PSNR37.763 vs bilinear44.608. Offline inversion
+  of upstream's tone-map regularizer only raises these to28.998/38.965. That
+  correction is diagnostic, not an implemented/timed GPU variant. Constant
+  source bias remains2.695byte before correction and is openly reported.
+-1080p two-pass GPU median1.7798ms across short32-frame run. No locked/recorded
+  GPU clock; excludes uploads, readbacks, scene/game, FG, display and input lag.
+  Cannot claim a sustained benefit or compare directly with older neural costs.
+- Full raw/PNG/validation/identity/provenance retained under research/gsr2-*.
+  QA package com.thor.nativefg.gsr2qa removed. Controller remains0.12; manual0,
+  automatic0 freshly read. No game launched, save/config/root settings changed,
+  or reboot this turn. No test runtime remains active.
+
+Next required: explain reconstruction deficit on independently generated data,
+extend to actual3D camera/depth/disocclusion/exposure cases and establish a real
+renderer provider. Also retain all FG/motion/pacing/GLES requirements from the
+original product objective. No completion or universal GSR2 compatibility claim.
