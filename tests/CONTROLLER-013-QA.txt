@@ -1,0 +1,48 @@
+Controller0.13 usability checkpoint, 2026-10-23, goal unfinished.
+User explicitly requested final output one easy app, choice of upscale methods.
+
+Main screen: game name without truncated package suffix, GSR1 / bounded Neural2D
+selector, upscale checkbox, manual start/restore, measured status action, compact
+FPS show/hide, existing auto preference + allowlist. Wide screen uses2columns;
+narrow screen stacks them. Diagnostics/DroidDeck preset/demo are collapsed.
+GSR2 unavailable text remains truthful; no fake selectable temporal option.
+readStatus(false) only returns the runtime summary; full logs require advanced.
+
+Build/signature/SPIR-V checks passed (native engine unchanged from prior final
+status fix). APK installed version13/0.13-experimental with existing development
+signature. Final SHA8C4EF3A220D77F296C3199B595763FE18A68B340A54FA28533E23C2020AD31DC.
+Device screenshots/XML controller-013-final.* confirm both manual start and stop,
+algorithm selector, status/HUD/auto controls fit1920x1080 without scrolling.
+Original GSR1 -> Neural2D selection writes persist.thorfg.sr_model=neural2d and
+survives controller restart; UI then restored GSR1/sgsr1. Manual0/auto0 preserved.
+Final current PID10525 startup/status has no captured AndroidRuntime fatal.
+Status button returns unconfigured state rather than stale paused-game rates.
+
+During UI testing, a tap used the wrong screen position after restart and applied
+DroidDeck's SR preset. Undone immediately via app's selective undo. Marker absent;
+parsed current session.xml and frame_gen.xml have ZERO semantic differences from
+the earlier pretest snapshot. No game launched or save restored in this UI turn.
+Eden PID20692 stays paused/background and bound to immutableDB92runtime, preserving
+human progress; installing controller does not replace that live runtime.
+Do not use any old save archive for a new test baseline.
+
+Limits: portrait/large-font/accessibility flow and final-controller-to-game start
+were not retested here; underlying engine activation remains independently
+tested from previous versions. New UI is not proof of GSR2/all-emulator/DLSS
+quality. A shipped APK does not complete the full product objective.
+
+Eden integration research on E:/ThorNative/research/eden-thor pinned
+989768aa46720e3fcab9e2111e3ddd70819c382b, official source. AGENTS + AI/Coding policies
+read; no Eden source edits/commits/PRs/pushes. Installed NDK28.2.13676358,
+CMake3.31.6/platform36 with existing SDKmanager (exit0). Gradle8.13 tasks success.
+First assemble fails missing generated SDL Java. Explicit native build reaches
+CPM but fails missing GNU patch executable. MinGit has no GNU patch; next supply
+build tools and run native configure before Java. This is not an inherent SR
+blocker. No live sessions68767/55366/83343/52028/23877/88902; all terminal/polled.
+
+Renderer Layer::ConfigureDraw exposes accelerated original image/extent/crop,
+but final FSR/SGSR/compositor makes a full-size image before Thor's blit hook.
+PresentManager::CopyToSwapchainImpl uses a linear blit when supported, so a
+controlled low-resolution composite/source provider is a possible integration
+path. It is NOT implemented or game-verified. Depth/MVs/jitter/camera not supplied
+by that presentation API; do not fabricate temporalGSR2 metadata from final color.

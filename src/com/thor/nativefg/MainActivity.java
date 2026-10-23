@@ -16,8 +16,8 @@ import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
     private TextView status;
-    private Spinner packages;
-    private CheckBox upscale,neural;
+    private Spinner packages,srModels;
+    private CheckBox upscale;
     private Switch automatic;
     private boolean syncingAuto=false;
     private boolean syncingSr=false;
@@ -29,39 +29,64 @@ public class MainActivity extends Activity {
     private boolean busy=false;
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
-        LinearLayout page=new LinearLayout(this);page.setOrientation(1);page.setPadding(36,28,36,24);page.setBackgroundColor(Color.rgb(12,20,33));
+        LinearLayout page=new LinearLayout(this);page.setOrientation(1);page.setPadding(32,18,32,20);page.setBackgroundColor(Color.rgb(12,20,33));
         ScrollView scroll=new ScrollView(this);scroll.addView(page);setContentView(scroll);
-        TextView title=text("THOR NATIVE FG",26);title.setTextColor(Color.rgb(87,222,212));page.addView(title);
-        page.addView(text("Frame gen + SR độc lập • Bản thử nghiệm 0.12",16));
-        page.addView(text("Không phải NVIDIA DLSS. Chưa xác nhận tương thích mọi giả lập hay tăng FPS thực tế. Layer hỗ trợ thử nghiệm Vulkan FIFO, SDR RGBA/BGRA8; OpenGL ES và driver nạp riêng có thể không đi qua layer.",15));
-        page.addView(text("Engine FG thuộc Thor Native FG. Khi thử, tắt FG tích hợp trong giả lập để tránh nội suy hai lần. GSR 1 xử lý ảnh render thấp khi đường hiển thị Vulkan phù hợp; hãy đặt độ phân giải thấp trong game/giả lập. Chỉ báo ON khi có pass upscale được gửi thật.",15));
-        button(page,"Chạy cảnh mẫu Vulkan · GSR 1 + FG 2x",()->startActivity(new Intent(this,DemoActivity.class)));
-        upscale=new CheckBox(this);upscale.setText("Upscale khi game render độ phân giải thấp");upscale.setTextColor(Color.rgb(223,233,246));upscale.setChecked(getSharedPreferences("thor",MODE_PRIVATE).getBoolean("upscale",true));page.addView(upscale);
-        upscale.setOnCheckedChangeListener((view,checked)->{if(syncingSr)return;if(AutoMode.requested(this)){runJob(()->AutoMode.configure(this,true,checked)+"\nĐổi SR: mở lại giả lập nếu các lệnh GPU cũ vẫn được dùng.");}else AutoMode.preferences(this).edit().putBoolean("upscale",checked).apply();});
-        neural=new CheckBox(this);neural.setText("Neural SR giảm viền (thử nghiệm)");neural.setTextColor(Color.rgb(223,233,246));neural.setChecked(AutoMode.preferences(this).getBoolean("neural_sr",false));page.addView(neural);
-        page.addView(text("Bỏ chọn để dùng GSR1. Neural dùng Anime4K CNN S có giảm viền sáng; chất lượng thay đổi theo game, chưa xác nhận tốt hơn trong mọi cảnh. Sau khi đổi, lưu game rồi mở lại giả lập. App báo thuật toán đã chạy trong phần trạng thái.",14));
-        neural.setOnCheckedChangeListener((view,checked)->{if(syncingModel)return;runJob(()->AutoMode.setNeural(this,checked));});
-        automatic=new Switch(this);automatic.setText("Tự bật FG khi mở game / giả lập");automatic.setTextColor(Color.rgb(223,233,246));automatic.setChecked(AutoMode.requested(this));page.addView(automatic);
+        TextView title=text("THOR · SR + FG",22);title.setTextColor(Color.rgb(87,222,212));page.addView(title);
+        page.addView(text("Nâng độ phân giải và tạo khung hình · Thử nghiệm 0.13",12));
+        LinearLayout columns=new LinearLayout(this);boolean wide=getResources().getConfiguration().screenWidthDp>=640;columns.setOrientation(wide?0:1);page.addView(columns);
+        LinearLayout controls=new LinearLayout(this);controls.setOrientation(1);controls.setPadding(16,6,24,12);
+        LinearLayout feedback=new LinearLayout(this);feedback.setOrientation(1);feedback.setPadding(24,6,16,12);
+        columns.addView(controls,wide?new LinearLayout.LayoutParams(0,-2,1):new LinearLayout.LayoutParams(-1,-2));
+        columns.addView(feedback,wide?new LinearLayout.LayoutParams(0,-2,1):new LinearLayout.LayoutParams(-1,-2));
+        controls.addView(text("1  Chọn game / giả lập",15));
+        packages=new Spinner(this);loadPackages();controls.addView(packages);
+        controls.addView(text("2  Chọn upscale",15));
+        upscale=new CheckBox(this);upscale.setText("Bật upscale từ ảnh render thấp");upscale.setTextSize(14);upscale.setTextColor(Color.rgb(223,233,246));upscale.setChecked(AutoMode.preferences(this).getBoolean("upscale",true));controls.addView(upscale);
+        upscale.setOnCheckedChangeListener((view,checked)->{
+            if(syncingSr)return;
+            if(AutoMode.requested(this))runJob(()->AutoMode.configure(this,true,checked));
+            else {AutoMode.preferences(this).edit().putBoolean("upscale",checked).apply();status.setText("Đã lưu lựa chọn upscale. Áp dụng khi bật FG và mở lại giả lập.");}
+        });
+        srModels=new Spinner(this);
+        srModels.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"GSR 1 · lọc không gian", "Neural 2D · giảm viền (thử nghiệm)"}));
+        srModels.setSelection(AutoMode.preferences(this).getBoolean("neural_sr",false)?1:0);controls.addView(srModels);
+        srModels.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){
+            public void onNothingSelected(AdapterView<?> parent){}
+            public void onItemSelected(AdapterView<?> parent,View view,int position,long id){
+                boolean selected=position==1;
+                if(syncingModel||busy||selected==AutoMode.preferences(MainActivity.this).getBoolean("neural_sr",false))return;
+                runJob(()->AutoMode.setNeural(MainActivity.this,selected));
+            }
+        });
+        controls.addView(text("GSR 1 và Neural 2D là hai lựa chọn riêng. Chất lượng tùy game; ảnh đã phóng lớn sẽ chưa chạy SR của Thor.",12));
+        button(controls,"3  Bật FG và mở game",()->enableSelected());
+        button(controls,"Tắt FG · khôi phục cấu hình",()->runJob(()->{restore();return "Đã tắt FG và khôi phục cấu hình. Lưu game rồi mở lại giả lập để bỏ SR đã ghi trong lệnh GPU cũ.";}));
+        feedback.addView(text("Trạng thái thực tế",15));
+        status=text("Chọn game và thuật toán, rồi bấm bật. Sau khi vào game, kiểm tra trạng thái để biết FG và SR có thực sự chạy. Lưu game trước khi thoát/mở lại giả lập.",14);feedback.addView(status);
+        button(feedback,"Kiểm tra FG + SR",()->runJob(()->readStatus(false)));
+        LinearLayout hud=new LinearLayout(this);hud.setOrientation(0);feedback.addView(hud);
+        button(hud,"Hiện FPS",()->showOverlay());
+        button(hud,"Ẩn FPS",()->{AutoMode.preferences(this).edit().putBoolean("hud_visible",false).apply();stopService(new Intent(this,FpsOverlayService.class));});
+        automatic=new Switch(this);automatic.setText("Tự bật khi mở game");automatic.setTextSize(14);automatic.setTextColor(Color.rgb(223,233,246));automatic.setChecked(AutoMode.requested(this));feedback.addView(automatic);
         automatic.setOnCheckedChangeListener((view,checked)->{if(syncingAuto)return;if(busy){syncAutoSwitch();return;}final boolean sr=upscale.isChecked();runJob(()->{String result=AutoMode.configure(this,checked,sr);if(checked)runOnUiThread(()->showOverlay());return result;});});
-        button(page,"Chọn game / giả lập tự động",()->editAutoApplications());
-        page.addView(text("Tự động nhận diện các giả lập quen thuộc và ứng dụng khai báo là game. Có thể thêm/loại app trong danh sách. Chế độ này cần bootstrap 0.2; ứng dụng đang chạy cần thoát/mở lại một lần. Không tự đóng game.",14));
-        page.addView(text("DroidDeck 0.5.0: lưu game và thoát hẳn trước khi đổi preset. Nút bên dưới chọn linear, trung hòa hiệu ứng màn hình và tắt FG tích hợp để Thor nhận ảnh render thấp. Có bản gốc để hoàn tác; không tự bật FG hay đổi độ phân giải game.",14));
-        button(page,"DroidDeck · dùng đường SR của Thor",()->runJob(()->DroidDeckPreset.change(this,false)));
-        button(page,"DroidDeck · hoàn tác preset SR",()->runJob(()->DroidDeckPreset.change(this,true)));
-        page.addView(text("Chọn ứng dụng khi bật thủ công",17));
-        packages=new Spinner(this);loadPackages();page.addView(packages);
-        button(page,"Bật FG của Thor và mở ứng dụng",()->enableSelected());
-        button(page,"Hiện FPS gốc / FG",()->showOverlay());
-        button(page,"Ẩn ô FPS (giữ cấu hình FG)",()->{getSharedPreferences("thor",MODE_PRIVATE).edit().putBoolean("hud_visible",false).apply();stopService(new Intent(this,FpsOverlayService.class));});
-        button(page,"Tắt layer · khôi phục cấu hình trước",()->runJob(()->{restore();return "Đã khôi phục cấu hình. Đóng/mở lại giả lập để gỡ layer khỏi tiến trình.";}));
-        button(page,"Đọc trạng thái và log layer",()->runJob(()->readStatus()));
-        status=text("Chọn ứng dụng → bật FG của Thor → cấp root → lưu game, thoát hẳn rồi mở lại giả lập và chọn Vulkan. Cấu hình thành công chưa chứng minh FG/SR đã chạy.\n\nÔ FPS chỉ hiện ‘Gốc’ và ‘FG’. Gốc là tốc độ ứng dụng gửi khung; FG là FPS sau xử lý, dùng timestamp trình bày Vulkan khi có. Dấu ≈ cho biết số ước tính từ yêu cầu gửi khung. Thiếu dữ liệu mới thì ô chuyển sang chờ. Kéo để di chuyển; chạm để xem ý nghĩa số đo.\n\nBản 0.3 thử GSR 1 ngay ở bước phóng ảnh Vulkan cuối: ví dụ game render 960×540, xuất 1920×1080. App không tự đổi độ phân giải game. Đường hiển thị khác hoặc ảnh đã bằng cỡ màn hình sẽ báo ‘chưa upscale’. Đây là spatial SR, chưa phải DLSS/temporal SR. Khi đổi SR hoặc tắt layer, mở lại giả lập để bỏ các lệnh GPU đã ghi trước đó.\n\nFG có loại bỏ cặp cut/chuyển động kém tin cậy. NPU, GSR 2, FSR 3 và hệ số 3x chưa được tích hợp.",14);page.addView(status);
-        String previous=getSharedPreferences("thor",MODE_PRIVATE).getString("selected_package","");for(int i=0;i<ids.size();i++)if(ids.get(i).equals(previous)){packages.setSelection(i);break;}
+        button(feedback,"Danh sách game tự động",()->editAutoApplications());
+        feedback.addView(text("Ô FPS chỉ gồm Gốc | FG. Dấu ≈ là ước tính; dấu — là chưa xác nhận. GSR 2 chưa sẵn sàng trong game. Đây là engine riêng của Thor, chưa tương đương NVIDIA DLSS.",12));
+        LinearLayout advanced=new LinearLayout(this);advanced.setOrientation(1);advanced.setVisibility(View.GONE);
+        Button more=new Button(this);more.setText("Tùy chọn nâng cao");more.setAllCaps(false);page.addView(more);
+        more.setOnClickListener(v->{boolean open=advanced.getVisibility()!=View.VISIBLE;advanced.setVisibility(open?View.VISIBLE:View.GONE);more.setText(open?"Thu gọn tùy chọn":"Tùy chọn nâng cao");});
+        page.addView(advanced);
+        advanced.addView(text("DroidDeck: lưu và thoát hẳn trước khi đổi đường SR. Eden Nightly: chọn VSync FIFO (On), tắt FG tích hợp. Thor chưa lấy được ảnh gốc để SR trong Eden.",13));
+        button(advanced,"DroidDeck · dùng SR của Thor",()->runJob(()->DroidDeckPreset.change(this,false)));
+        button(advanced,"DroidDeck · hoàn tác đường SR",()->runJob(()->DroidDeckPreset.change(this,true)));
+        button(advanced,"Xem log kỹ thuật",()->runJob(()->readStatus(true)));
+        button(advanced,"Chạy cảnh mẫu GSR 1 + FG",()->startActivity(new Intent(this,DemoActivity.class)));
+        advanced.addView(text("Cần quyền root và module Thor đã nạp. Bản thử hỗ trợ một số đường Vulkan SDR/FIFO; OpenGL ES, GSR 2, NPU và 3× chưa được tích hợp. Cấp quyền hiển thị trên ứng dụng khác để hiện FPS. Đổi thuật toán cần lưu và mở lại game; app không tự đóng game đang chạy.",12));
+        String previous=AutoMode.preferences(this).getString("selected_package","");for(int i=0;i<ids.size();i++)if(ids.get(i).equals(previous)){packages.setSelection(i);break;}
         if(getIntent().getBooleanExtra("demo",false)){Intent demo=new Intent(this,DemoActivity.class);demo.putExtra("mode",getIntent().getIntExtra("mode",2));startActivity(demo);}
         if(getIntent().getBooleanExtra("hud",false)||(AutoMode.requested(this)&&AutoMode.preferences(this).getBoolean("hud_visible",false)&&Settings.canDrawOverlays(this)))showOverlay();
     }
-    private TextView text(String value,int size){TextView v=new TextView(this);v.setText(value);v.setTextSize(size);v.setTextColor(Color.rgb(223,233,246));v.setPadding(0,10,0,16);return v;}
-    private void button(LinearLayout page,String label,Runnable action){Button b=new Button(this);b.setText(label);page.addView(b);b.setOnClickListener(v->{if(!busy)action.run();});}
+    private TextView text(String value,int size){TextView v=new TextView(this);v.setText(value);v.setTextSize(size);v.setTextColor(Color.rgb(223,233,246));v.setPadding(0,6,0,10);return v;}
+    private void button(LinearLayout page,String label,Runnable action){Button b=new Button(this);b.setText(label);b.setAllCaps(false);b.setTextSize(14);page.addView(b);b.setOnClickListener(v->{if(!busy)action.run();});}
     private void loadPackages(){
         Intent intent=new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
         List<ResolveInfo> list=getPackageManager().queryIntentActivities(intent,0);Map<String,String> unique=new TreeMap<>();
@@ -69,7 +94,12 @@ public class MainActivity extends Activity {
         ArrayList<String> sorted=new ArrayList<>(unique.keySet());
         sorted.sort((a,b)->{boolean ea=isEmulator(a),eb=isEmulator(b);return ea==eb?unique.get(a).compareToIgnoreCase(unique.get(b)):(ea?-1:1);});
         ArrayList<String> labels=new ArrayList<>();for(String id:sorted){ids.add(id);labels.add((isEmulator(id)?"★ ":"")+unique.get(id)+"\n"+id);}
-        ArrayAdapter<String> adapter=new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,labels);packages.setAdapter(adapter);
+        ArrayAdapter<String> adapter=new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,labels){
+            @Override public View getView(int position,View recycled,ViewGroup parent){
+                TextView view=(TextView)super.getView(position,recycled,parent);
+                view.setText(unique.get(ids.get(position)));view.setTextSize(16);return view;
+            }
+        };packages.setAdapter(adapter);
     }
     private boolean isEmulator(String id){return GameRules.isEmulator(id);}
     private void syncAutoSwitch(){syncingAuto=true;automatic.setChecked(AutoMode.requested(this));syncingAuto=false;}
@@ -131,7 +161,7 @@ public class MainActivity extends Activity {
         String property=old.optString("thor_enabled","");if(property.equals("1"))root("setprop debug.thorfg.enabled 1");if(!backup().delete())throw new IOException("Cannot remove restored backup");
         root("setprop debug.thorfg.sr "+("1".equals(old.optString("thor_sr",""))?"1":"0"));
     }
-    private String readStatus()throws Exception{
+    private String readStatus(boolean includeLogs)throws Exception{
         boolean auto=AutoMode.requested(this);String autoStatus=auto?"Tự động: đã yêu cầu; bootstrap đang chạy="+root("getprop sys.thorfg.bootstrap")+" (cần 2 trở lên).\n":"";
         String target=auto?root("game_target=$("+AutoMode.foregroundScript()+"); if "+AutoMode.allowedScript()+"; then printf %s \"$game_target\"; fi"):root("settings get global gpu_debug_app");
         if(auto&&target.isEmpty()){
@@ -146,8 +176,9 @@ public class MainActivity extends Activity {
         if(logs.length()>18000)logs=logs.substring(logs.length()-18000);
         RuntimeMetrics latest=null;for(String line:logs.split("\\r?\\n")){RuntimeMetrics value=RuntimeMetrics.parse(line,SystemClock.elapsedRealtime());if(value!=null&&value.pid==Integer.parseInt(pid))latest=value;}
         String summary=latest!=null&&latest.fresh(SystemClock.elapsedRealtime())?latest.hud()+"\n"+latest.detail():"Chờ dữ liệu FG/SR mới của tiến trình này.";
+        if(!includeLogs)return summary+"\n\n"+target+"\nKhi chưa có dữ liệu mới, mở game rồi kiểm tra lại.";
         return summary+"\n\nTarget / active / PID:\n"+config+"\n"+pid+"\n\n"+logs+"\n\nNếu chưa có INSTANCE/DEVICE/SWAPCHAIN thì chưa xác nhận layer hoạt động. COUNTERS là số yêu cầu present; không phải FPS hiển thị hay độ trễ đã đo.";
     }
     interface Work {String run()throws Exception;}
-    private void runJob(Work work){busy=true;upscale.setEnabled(false);neural.setEnabled(false);automatic.setEnabled(false);status.setText("Đang xử lý… Nếu Magisk hỏi, cần cấp quyền root để thay cấu hình layer.");worker.execute(()->{String result;try{result=work.run();}catch(Exception e){result="Lỗi: "+e.getMessage();}final String value=result;runOnUiThread(()->{busy=false;syncAutoSwitch();syncingSr=true;upscale.setChecked(AutoMode.preferences(this).getBoolean("upscale",true));syncingSr=false;syncingModel=true;neural.setChecked(AutoMode.preferences(this).getBoolean("neural_sr",false));syncingModel=false;upscale.setEnabled(true);neural.setEnabled(true);automatic.setEnabled(true);status.setText(value);});});}
+    private void runJob(Work work){busy=true;upscale.setEnabled(false);srModels.setEnabled(false);packages.setEnabled(false);automatic.setEnabled(false);status.setText("Đang xử lý… Nếu Magisk hỏi, cần cấp quyền root để thay cấu hình layer.");worker.execute(()->{String result;try{result=work.run();}catch(Exception e){result="Lỗi: "+e.getMessage();}final String value=result;runOnUiThread(()->{busy=false;syncAutoSwitch();syncingSr=true;upscale.setChecked(AutoMode.preferences(this).getBoolean("upscale",true));syncingSr=false;syncingModel=true;srModels.setSelection(AutoMode.preferences(this).getBoolean("neural_sr",false)?1:0);syncingModel=false;upscale.setEnabled(true);srModels.setEnabled(true);packages.setEnabled(true);automatic.setEnabled(true);status.setText(value);});});}
 }

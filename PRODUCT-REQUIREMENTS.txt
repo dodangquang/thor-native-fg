@@ -1,5 +1,8 @@
 THOR — independent super resolution + frame generation product objective
 User objective: continue until an actually usable DLSS-like product exists.
+User update: final output must be one easy-to-use app, with a choice of upscale
+algorithms when multiple are available. A selector alone does not satisfy the
+remaining engine quality, compatibility or gameplay requirements below.
 This goal is NOT satisfied by loading a layer, counting submissions, a demo,
 same-resolution sharpening, or recommending another app's frame generator.
 
@@ -25,6 +28,9 @@ Required end state (all remain required until supported by evidence):
 7. Installable, recoverable app/configuration, clear activation/status, resource
    cleanup, resize/restart handling and a reliable off/restore action. Defaults
    and status must represent actual runtime state.
+   Main screen must expose game selection, actual available upscale choices,
+   FG start/stop and compact FPS. Hide diagnostics in advanced options. Preserve
+   algorithm preferences and never offer unintegrated GSR2 as an enabled mode.
 8. Sustained testing on the actual Thor: compare quality, FPS, thermal behavior
    and latency with FG/SR off, SR-only and SR+FG. Mere compilation/validation or
    a higher counter does not prove the user goal complete.
