@@ -1,0 +1,35 @@
+#version 450
+layout(local_size_x=8,local_size_y=8) in;
+layout(binding=0) uniform sampler2D inputImage;
+layout(binding=1,rgba16f) uniform writeonly image2D outputImage;
+layout(binding=2,std430) readonly buffer Weights {vec4 values[];} weights;
+layout(push_constant) uniform Params {int width,height,inputs,outputs,groups,weightOffset,biasOffset,first;} p;
+// An8x8 output tile shares its10x10 input neighborhood and4-output-channel
+// weights. Feature samples are planar in shared memory to avoid the packed
+// texture's eight-group stride during the convolution's repeated reads.
+shared vec4 inputTile[800];
+shared vec4 kernel[288];
+vec4 readInput(ivec2 at,int group){
+ if(any(lessThan(at,ivec2(0)))||any(greaterThanEqual(at,ivec2(p.width,p.height))))return vec4(0);
+ if(p.first!=0)return vec4(texelFetch(inputImage,at,0).rgb,0);
+ return texelFetch(inputImage,ivec2(at.x*8+group,at.y),0);
+}
+void main(){
+ ivec2 at=ivec2(gl_GlobalInvocationID.xy);int outputGroup=int(gl_WorkGroupID.z);
+ int lane=int(gl_LocalInvocationIndex);ivec2 tile=ivec2(gl_WorkGroupID.xy)*8-1;
+ for(int i=lane;i<100*p.groups;i+=64){int group=i%p.groups,pixel=i/p.groups;inputTile[group*100+pixel]=readInput(tile+ivec2(pixel%10,pixel/10),group);}
+ int block=p.weightOffset+outputGroup*9*p.groups*4;
+ for(int i=lane;i<9*p.groups*4;i+=64)kernel[i]=weights.values[block+i];
+ barrier();
+ if(any(greaterThanEqual(at,ivec2(p.width,p.height))))return;
+ vec4 sum=weights.values[p.biasOffset+outputGroup];
+ for(int y=0;y<3;y++)for(int x=0;x<3;x++)for(int group=0;group<p.groups;group++){
+  vec4 sampleValue=inputTile[group*100+(int(gl_LocalInvocationID.y)+y)*10+int(gl_LocalInvocationID.x)+x];
+  int base=((y*3+x)*p.groups+group)*4;
+  sum=fma(vec4(sampleValue.x),kernel[base],sum);
+  sum=fma(vec4(sampleValue.y),kernel[base+1],sum);
+  sum=fma(vec4(sampleValue.z),kernel[base+2],sum);
+  sum=fma(vec4(sampleValue.w),kernel[base+3],sum);
+ }
+ imageStore(outputImage,ivec2(at.x*8+outputGroup,at.y),clamp(sum,0,1));
+}

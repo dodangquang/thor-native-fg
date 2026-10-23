@@ -1,0 +1,15 @@
+#version 450
+layout(local_size_x=8,local_size_y=8) in;
+layout(binding=0) uniform sampler2D inputImage;
+layout(binding=1,rgba8) uniform writeonly image2D outputImage;
+layout(binding=2) uniform sampler2D sourceImage;
+layout(push_constant) uniform Params {ivec2 size;} p;
+void main(){
+ ivec2 at=ivec2(gl_GlobalInvocationID.xy);if(any(greaterThanEqual(at,p.size*2)))return;
+ ivec2 low=at/2;int phase=(at.y%2)*2+at.x%2;vec3 rgb;
+ for(int channel=0;channel<3;channel++){
+  int index=phase*3+channel;
+  rgb[channel]=texelFetch(inputImage,ivec2(low.x*8+index/4,low.y),0)[index%4];
+ }
+ imageStore(outputImage,at,vec4(rgb,texelFetch(sourceImage,low,0).a));
+}

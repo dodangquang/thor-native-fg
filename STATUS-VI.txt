@@ -5,6 +5,25 @@ Engine vẫn thử nghiệm; mục tiêu DLSS-like đầy đủ chưa đạt. C�
 phía dưới là lịch sử. Xem phần 0.9 và PRODUCT-REQUIREMENTS.txt.
 
 CẬP NHẬT 0.9 — GIẢM CHI PHÍ OPTICAL FLOW, GIỮ KẾT QUẢ THUẬT TOÁN
+NGHIÊN CỨU TIẾP SAU 0.9 — CHƯA THAY APK ĐANG CÀI
+- Đã dựng bộ export/đối chiếu và probe Neural SR trong experiments/neural.
+  NNAPI trên Thor chỉ có CPU reference. QNN HTP lỗi 14001/ENODEV cả shell và
+  root; firmware báo QCS8550, soc_id603, node cDSP status 'no', không có cDSP
+  trong remoteproc. Chưa kết luận phần cứng thiếu NPU hoặc mọi UID đều không
+  dùng được; chưa sửa kernel/DT/firmware. Không có cơ sở hứa NPU 2–3 ms.
+- QuickSRNet Small 2x qua QNN GPU: 540p→1080p mất 75,07 ms FP32 hoặc 48,22 ms
+  FP16. CPU fallback đã tắt; profile nhỏ chỉ có QNN provider. Shader Vulkan
+  trực tiếp naive 212,40 ms, shared 286,78 ms: giữ bằng chứng thất bại, chưa
+  đưa vào game. INT8 chưa qua chất lượng; không chọn chỉ vì có tên neural.
+- Đã port thử Anime4K CNN S sang Vulkan: 540p→1080p 1,643 ms; 720p→1440p
+  2,890 ms cho 4 convolution và shuffle, chưa gồm crop/resize/present/latency.
+  Ảnh 32x32 đối chiếu cách tính ma trận CPU độc lập lệch tối đa 1 mức 8-bit.
+  Mạng dành nét vẽ, chỉ xử lý một ảnh; chưa chứng minh chất lượng game 3D,
+  alpha/crop/resize/lifecycle hoặc SR+FG đồng thời. Chưa phải temporal DLSS.
+  Mã nguồn gốc MIT được giữ tại third_party/anime4k. Xem README của experiment
+  và research/neural-output-verification.json. APK/runtime đang dùng vẫn 0.9.
+
+KẾT QUẢ BẢN 0.9 ĐÃ CÀI
 - Mỗi workgroup xử lý một block, chia 81 ứng viên tìm chuyển động cho 64 lane
   và dùng chung 16 mẫu. Reduction giữ thứ tự chọn khi chi phí bằng nhau.
   Không tăng phạm vi chuyển động hoặc tuyên bố tăng chất lượng từ tối ưu này.
