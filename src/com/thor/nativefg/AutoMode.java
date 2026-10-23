@@ -18,7 +18,7 @@ final class AutoMode {
         String selected=enabled?"neural2d":"sgsr1";
         RootShell.run("set -e\nsetprop persist.thorfg.sr_model "+selected+"\ntest \"$(getprop persist.thorfg.sr_model)\" = "+selected);
         preferences(context).edit().putBoolean("neural_sr",enabled).apply();
-        return "Đã chọn "+(enabled?"Neural 2D cho nét vẽ/game 2D (thử nghiệm)":"GSR1")+". Lưu game và mở lại giả lập để đổi thuật toán. Lựa chọn được giữ qua reboot; SR chỉ hoạt động khi nhận được ảnh render thấp phù hợp.";
+        return "Đã chọn "+(enabled?"Neural 2D giảm viền (thử nghiệm)":"GSR1")+". Lưu game và mở lại giả lập để đổi thuật toán. Lựa chọn được giữ qua reboot; SR chỉ hoạt động khi nhận được ảnh render thấp phù hợp.";
     }
     static String foregroundScript(){
         // Consume the whole dump: an early pipe close can make dumpsys emit a

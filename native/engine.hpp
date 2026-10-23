@@ -8,8 +8,8 @@ struct Pipeline {VkPipeline pipeline{};VkPipelineLayout layout{};VkDescriptorSet
 // Seven optional timestamps delimit six input stages. The owner resets the
 // query range and waits for this submission before reading it.
 struct EngineTimings {VkQueryPool pool{};uint32_t first=0;};
-enum class SpatialModel:uint32_t {Sgsr1=0,Neural2D=1};
-inline const char* spatialModelName(SpatialModel model){return model==SpatialModel::Neural2D?"Anime4K_CNN_S":"SGSR1";}
+enum class SpatialModel:uint32_t {Sgsr1=0,Neural2D=1,NeuralBounded=2};
+inline const char* spatialModelName(SpatialModel model){return model==SpatialModel::NeuralBounded?"Anime4K_CNN_S_bounded":model==SpatialModel::Neural2D?"Anime4K_CNN_S":"SGSR1";}
 struct Engine {
  Api* a{};VkPhysicalDeviceMemoryProperties memory{};VkExtent2D input{},output{},grid{};
  Image history[2],flow,mid,upCurrent,upMid;

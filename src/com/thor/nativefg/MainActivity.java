@@ -32,14 +32,14 @@ public class MainActivity extends Activity {
         LinearLayout page=new LinearLayout(this);page.setOrientation(1);page.setPadding(36,28,36,24);page.setBackgroundColor(Color.rgb(12,20,33));
         ScrollView scroll=new ScrollView(this);scroll.addView(page);setContentView(scroll);
         TextView title=text("THOR NATIVE FG",26);title.setTextColor(Color.rgb(87,222,212));page.addView(title);
-        page.addView(text("Frame gen + SR độc lập • Bản thử nghiệm 0.11",16));
+        page.addView(text("Frame gen + SR độc lập • Bản thử nghiệm 0.12",16));
         page.addView(text("Không phải NVIDIA DLSS. Chưa xác nhận tương thích mọi giả lập hay tăng FPS thực tế. Layer hỗ trợ thử nghiệm Vulkan FIFO, SDR RGBA/BGRA8; OpenGL ES và driver nạp riêng có thể không đi qua layer.",15));
         page.addView(text("Engine FG thuộc Thor Native FG. Khi thử, tắt FG tích hợp trong giả lập để tránh nội suy hai lần. GSR 1 xử lý ảnh render thấp khi đường hiển thị Vulkan phù hợp; hãy đặt độ phân giải thấp trong game/giả lập. Chỉ báo ON khi có pass upscale được gửi thật.",15));
         button(page,"Chạy cảnh mẫu Vulkan · GSR 1 + FG 2x",()->startActivity(new Intent(this,DemoActivity.class)));
         upscale=new CheckBox(this);upscale.setText("Upscale khi game render độ phân giải thấp");upscale.setTextColor(Color.rgb(223,233,246));upscale.setChecked(getSharedPreferences("thor",MODE_PRIVATE).getBoolean("upscale",true));page.addView(upscale);
         upscale.setOnCheckedChangeListener((view,checked)->{if(syncingSr)return;if(AutoMode.requested(this)){runJob(()->AutoMode.configure(this,true,checked)+"\nĐổi SR: mở lại giả lập nếu các lệnh GPU cũ vẫn được dùng.");}else AutoMode.preferences(this).edit().putBoolean("upscale",checked).apply();});
-        neural=new CheckBox(this);neural.setText("Neural SR cho nét vẽ / game 2D (thử nghiệm)");neural.setTextColor(Color.rgb(223,233,246));neural.setChecked(AutoMode.preferences(this).getBoolean("neural_sr",false));page.addView(neural);
-        page.addView(text("Bỏ chọn để dùng GSR1. Neural dùng mạng Anime4K CNN S, chưa xác nhận chất lượng cho mọi game 3D. Sau khi đổi, lưu game rồi mở lại giả lập. App báo thuật toán đã chạy trong phần trạng thái.",14));
+        neural=new CheckBox(this);neural.setText("Neural SR giảm viền (thử nghiệm)");neural.setTextColor(Color.rgb(223,233,246));neural.setChecked(AutoMode.preferences(this).getBoolean("neural_sr",false));page.addView(neural);
+        page.addView(text("Bỏ chọn để dùng GSR1. Neural dùng Anime4K CNN S có giảm viền sáng; chất lượng thay đổi theo game, chưa xác nhận tốt hơn trong mọi cảnh. Sau khi đổi, lưu game rồi mở lại giả lập. App báo thuật toán đã chạy trong phần trạng thái.",14));
         neural.setOnCheckedChangeListener((view,checked)->{if(syncingModel)return;runJob(()->AutoMode.setNeural(this,checked));});
         automatic=new Switch(this);automatic.setText("Tự bật FG khi mở game / giả lập");automatic.setTextColor(Color.rgb(223,233,246));automatic.setChecked(AutoMode.requested(this));page.addView(automatic);
         automatic.setOnCheckedChangeListener((view,checked)->{if(syncingAuto)return;if(busy){syncAutoSwitch();return;}final boolean sr=upscale.isChecked();runJob(()->{String result=AutoMode.configure(this,checked,sr);if(checked)runOnUiThread(()->showOverlay());return result;});});

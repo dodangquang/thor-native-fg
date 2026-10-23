@@ -88,7 +88,7 @@ static bool srReplace(Device& d,VkCommandBuffer cmd,VkImage src,VkImageLayout sr
   size_t slot=command.next;
   if(command.engines.size()<=slot)command.engines.resize(slot+1);
   auto& engine=command.engines[slot];VkExtent2D input{uint32_t(width),uint32_t(height)};
-  char modelProperty[PROP_VALUE_MAX]{};__system_property_get("persist.thorfg.sr_model",modelProperty);SpatialModel model=!std::strcmp(modelProperty,"neural2d")?SpatialModel::Neural2D:SpatialModel::Sgsr1;
+  char modelProperty[PROP_VALUE_MAX]{};__system_property_get("persist.thorfg.sr_model",modelProperty);SpatialModel model=!std::strcmp(modelProperty,"neural2d")?SpatialModel::NeuralBounded:SpatialModel::Sgsr1;
   if(!engine||engine->spatialModel!=model||engine->input.width!=input.width||engine->input.height!=input.height||engine->output.width!=swap->extent.width||engine->output.height!=swap->extent.height){
    auto replacement=std::make_unique<Engine>();replacement->initSpatial(d.a,d.memory,input,swap->extent,model);engine=std::move(replacement);
    LOG("SR_PIPELINE input=%ux%u output=%ux%u source=application_blit algorithm=%s (single-image SR, not temporal DLSS)",input.width,input.height,swap->extent.width,swap->extent.height,spatialModelName(model));

@@ -1,12 +1,69 @@
-THOR NATIVE FG — NHẬT KÝ KIỂM CHỨNG (CẬP NHẬT 0.11)
+THOR NATIVE FG — NHẬT KÝ KIỂM CHỨNG (CẬP NHẬT 0.12)
 
-HIỆN TẠI: APK 0.11 và runtime50CD... đã cài; bootstrap0.3 giữ nguyên.
+HIỆN TẠI: APK0.12 và runtimeA384... đã cài; bootstrap0.3 giữ nguyên.
 Người dùng đã tắt tự động trong lúc làm việc; cập nhật giữ auto0, không bật
 lại. Neural đang bỏ chọn, GSR1 là lựa chọn hiện tại; manual enabled0.
-Engine vẫn thử nghiệm, mục tiêu DLSS-like đầy đủ chưa đạt. Các mục0.1–0.10
+Engine vẫn thử nghiệm, mục tiêu DLSS-like đầy đủ chưa đạt. Các mục0.1–0.11
 phía dưới là lịch sử. Xem PRODUCT-REQUIREMENTS.txt để giữ đầy đủ yêu cầu.
 
-CẬP NHẬT 0.11 — PRESET DROIDDECK CÓ HOÀN TÁC, NEURAL SR TRONG GAME
+CẬP NHẬT0.12 — GIẢM VIỀN SÁNG NEURAL, ĐO CHẤT LƯỢNG BẰNG ẢNH THAM CHIẾU
+- Neural tùy chọn có giới hạn RGB theo khoảng màu của4pixel nguồn trong vùng
+  bilinear; chỉ chặn ở đầu ra cuối, sau resize nếu tỷ lệ khác2x. Giữ alpha
+  lấy riêng từ nguồn. Mạng CNN/weights không đổi; raw neural giữ làm đối chứng.
+  Model mới sa=2, raw cũ sa=1, GSR1 sa=0. App phân biệt model đã chạy thật;
+  ô FPS vẫn chỉ Gốc|FG. GSR1 vẫn được chọn, neural/auto bỏ chọn sau kiểm thử.
+- Thêm experiments/spatial-quality: renderer3D/2D/HUD tự tạo, render ảnh thấp
+  và ảnh chuẩn riêng ở cùng góc nhìn; không dùng ảnh lớn đã resize làm nguồn.
+  Không tải/huấn luyện bằng QRISP vì điều kiện dùng hạn chế. Bộ đối chiếu dùng
+  ảnh tự tạo; APK phát hành không chứa ảnh benchmark/game. Mạng Anime4K vẫn
+  dùng weights MIT đã ghi nguồn. Cảnh tổng hợp không thay native-game GT.
+-34case phát triển: nguồn1sample/pixel, chuẩn4sample/pixel;16case bổ sung:
+  nguồn/chuẩn4sample, góc nhìn chưa dùng của cùng nhóm cảnh. Có2x/1.5x/3x,
+  3D có texture, nét mảnh/occlusion, cảnh tối, nét vẽ, HUD và bảng tần số.
+  Probe gọi đúng Engine::recordSpatial. Candidate200ảnh GPU, đều qua Khronos
+  +sync validation. Ba đối chứng cũ giữ nguyên102ảnh/188870400thành phần RGBA
+  so baseline0.11; giới hạn mới khớp CPU trên62956800thành phần ở bộ34case.
+- Bộ34case: neural raw->bounded RGB PSNR21.282->22.159dB, SSIM Y0.91532->
+  0.92361; HUD Y MAE0.02826->0.01804. Bộ16case AA: RGB PSNR34.314->34.842,
+  SSIM0.96637->0.96810, HUD MAE0.02153->0.01325. GSR1 ở bộ AA33.281dB,
+  bilinear32.574dB. Không suy ra hơn mọi game; bảng tần số cố ý có chi tiết
+  không thể phục hồi. Temporal error-delta chưa warp, không phải điểm flicker
+  độc lập. Số liệu/crop tại research/spatial-quality-{bounded,aa}-gpu/report.json.
+-6control kiểm phép đo. Ảnh phẳng bắt được sai số triệt tiêu ở SSIM FP32;
+  đã dùng FP64, không nới tolerance để che sai số.24kiểm thử GPU neural (raw
+  và bounded) qua, RGB<=2/alpha<=1byte;27FG/GSR1 cũ và28telemetry/HUD qua.
+  Case kích thước lẻ từng sai30byte vì floor với reciprocal GPU chọn ô cạnh
+  khác ở tâm ảnh; đã sửa footprint bằng số nguyên. Giữ log trước sửa và không
+  tăng ngưỡng. Crop/alpha/resize/reuse đều được đối chiếu CPU độc lập.
+- QA layer PID10334:6SR readback+6compute-state qua,6cửa sổ phục hồi sau
+  FG OFF/ON, sa2/sr1/display_valid1. Không VUID/sync error. Snapshot4global GPU
+  setting và các override khôi phục chính xác, auto0 không đổi. Gỡ4APK QA.
+- Đã cài0.12, mở Castlevania qua nút thủ công/preset DroidDeck. FG tích hợp
+  vẫn off; runtimeA384 được nạp thật, sa2/sr1,1024x576->1920x1080 cùng FG.
+  Mẫu menu18giây bỏ3giây đầu:15cửa sổ,58.46->115.88FPS, P95gap8.413ms.
+  Continue/intro30giây có cả loading:19cửa sổ hợp lệ,29.17->57.91FPS,
+  P95gap25.237ms; còn nhịp chưa đều. Không so các mẫu khác thời điểm để tuyên
+  bố tăng hiệu năng so0.11. Chưa đối chiếu chất lượng game với native GT.
+  Log có Choreographer cảnh báo vsync0.138ms tương lai; không coi timing hoàn hảo.
+- Chi phí GPU headless dao động giữa các lượt, kể cả bilinear/GSR1 không đổi:
+  trong lượt candidate540p->1080p raw5.082ms/bounded5.085ms;1024x576->1080p
+  raw7.966/bounded7.974ms. Clock của lượt headless chưa được ghi; lúc game đã
+  đọc550MHz. Không dùng chênh qua các lượt để kết luận regression/tăng tốc,
+  không coi GPU stage là input latency. Cần audit clock/latency/sustained tiếp.
+- Sao lưu MỚI trước game; cả2save khớp SHA sau test, không phục hồi save.
+  Đã kết thúc đúng PID13796, hoàn tác preset và khôi phục toàn bộ giá trị
+  session/frame_gen/prefs Thor so snapshot mới; auto0/manual0/modelsgsr1,
+  global GPU settings/overrides đúng baseline. HUD service dừng, prefs hiện
+  HUD vẫn true. system_server2170/SurfaceFlinger2301 không nạp Thor, không reboot.
+- APK0.12 SHA256 (đã kéo bản cài thực về đối chiếu):
+ F0528A43793DAF70972614B9235771407EA04241223221319474AC74AE99F842
+  Native/runtime:
+ A384424BF764F6A91AF503223818F5D0A3D10D10F67E965B5B5A53DB8D70BF35
+  Giữ0.11/50CD và các runtime bất biến cũ. Không có QNN/ONNX runtime trong APK.
+  Còn cần actual-game native-reference, temporal SR, cải thiện FG/pacing/latency,
+  fast camera/cuts/HUD/occlusion, GLES và tất cả giả lập; mục tiêu chưa hoàn tất.
+
+LỊCH SỬ0.11 — PRESET DROIDDECK CÓ HOÀN TÁC, NEURAL SR TRONG GAME
 - Thêm hai nút dùng đường SR Thor / hoàn tác cho DroidDeck0.5.0(versionCode14),
   hồ sơ chính. Chỉ đổi3preference: upscaler=linear, screenEffects=neutral và
   frame_gen.engine=off. Không tự đổi độ phân giải game hoặc bật chế độ tự động.

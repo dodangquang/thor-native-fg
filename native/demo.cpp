@@ -71,7 +71,7 @@ struct Demo {
   VkImageBlit blit{};blit.srcSubresource=blit.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};blit.srcOffsets[1]={640,360,1};blit.dstOffsets[1]={int32_t(extent.width),int32_t(extent.height),1};
   // Prepare reference work before establishing the application state under
   // test, so the reference itself cannot mask or invalidate state restoration.
-  char modelProperty[PROP_VALUE_MAX]{};__system_property_get("persist.thorfg.sr_model",modelProperty);auto qaModel=!std::strcmp(modelProperty,"neural2d")?SpatialModel::Neural2D:SpatialModel::Sgsr1;
+  char modelProperty[PROP_VALUE_MAX]{};__system_property_get("persist.thorfg.sr_model",modelProperty);auto qaModel=!std::strcmp(modelProperty,"neural2d")?SpatialModel::NeuralBounded:SpatialModel::Sgsr1;
   if(!qaSpatial.a)qaSpatial.initSpatial(a,e.memory,{640,360},extent,qaModel);
   qaSpatial.recordSpatial(cmd,source.image,VK_IMAGE_LAYOUT_GENERAL,blit);
   a.CmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,scene.pipeline);a.CmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,scene.layout,0,1,&sceneSet,0,nullptr);a.CmdPushConstants(cmd,scene.layout,VK_SHADER_STAGE_COMPUTE_BIT,0,16,&push);

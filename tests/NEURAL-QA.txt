@@ -2,14 +2,15 @@ Neural spatial integration QA
 
 1. Run build.ps1. It compiles the pinned upstream model into Vulkan SPIR-V and
    builds thor-neural-selftest. Generated shaders require no ML runtime/Python.
-2. prepare_neural_fixtures.py creates six small binary fixtures using NumPy and
+2. prepare_neural_fixtures.py creates six small shapes for raw/bounded models,
+   twelve fixtures in THORNSR2format, using NumPy and
    independent interpretation of the upstream column-major matrices, CRD
    residual shuffle, clamp-to-edge sampling and final RGB/alpha resampling.
 3. scripts/prepare-neural-qa.ps1 builds a temporary, debuggable instrumentation
    APK with the core Engine and bundled Khronos validation. It has no Activity,
    overlay or game input. After installation run:
    adb shell am instrument -r -w com.thor.nativefg.neuralqa/com.thor.neuralqa.HeadlessInstrumentation
-   Capture logcat for the returned PID. Require12NEURAL_FIXTURE PASS, a zero-
+   Capture logcat for the returned PID. Require24NEURAL_FIXTURE PASS, a zero-
    failure NEURAL_RESULT and no validation/VUID/sync errors. The fixture loop
    requests no optional Vulkan features. Output tolerances are RGB<=2, alpha<=1
    bytes; the final Thor run had RGB max2and alpha max1. These limits concern
@@ -19,18 +20,20 @@ Neural spatial integration QA
    settings can load its own native layer. This avoids changing automatic
    runtime/provider configuration for the user's games. Save/restore the
    existing settings/overrides first. Neural selection is persist.thorfg.sr_model
-   =neural2d; GSR1=sgsr1. The controller owns this preference in normal use.
+   =neural2d(now bounded model2); GSR1=sgsr1. The controller owns this preference
+   in normal use. Raw model1 is kept for direct engine/quality controls.
    Mode4 checks actual swapchain readbacks and application compute-state
    preservation, then mode3 supplies a source for external FG. Reference work
    occurs before binding the application state under test. Never rebind after
    the intercepted blit to make a broken restoration appear successful.
 5. Check recreation and FG hot OFF/ON with actual generated/display telemetry.
-   Inspect sa=1 AND sr=1 for active neural SR. Selecting the algorithm alone,
+   Inspect sa=2 AND sr=1 for active bounded neural (sa1is the old raw model).
+   Selecting the algorithm alone,
    cached dimensions or old buffered telemetry must not claim it is active.
 
 Remove temporary QA packages and restore the fresh configuration snapshot.
 Never restore an old game-save snapshot after the user has resumed gameplay.
-Current test evidence is in research/neural-integrated-* and
-research/neural-external-final-lifecycle.txt. Real-game/custom-driver quality,
+Current0.12evidence is research/bounded-neural-core-validation.txt and
+bounded-neural-external-final.txt;0.10logs remain historical. Real-game quality,
 native-ground-truth comparison and the remaining product requirements remain
 outstanding. Do not report this small fixture as universal emulator support.

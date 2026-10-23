@@ -1,12 +1,16 @@
 #version 450
+#extension GL_GOOGLE_include_directive : require
+#include "neural_bounds.glsl"
 // Thor SR final resampling. Neural RGB is2x; alpha comes from the original crop.
 layout(local_size_x=8,local_size_y=8) in;
 layout(binding=0) uniform sampler2D reconstructed;
 layout(binding=1,rgba8) uniform writeonly image2D outputImage;
 layout(binding=2) uniform sampler2D original;
-layout(push_constant) uniform Params {ivec2 size;} p;
+layout(push_constant) uniform Params {ivec2 size;int bounded;} p;
 void main(){
  ivec2 at=ivec2(gl_GlobalInvocationID.xy);if(any(greaterThanEqual(at,p.size)))return;
  vec2 uv=(vec2(at)+0.5)/vec2(p.size);
- imageStore(outputImage,at,vec4(textureLod(reconstructed,uv,0).rgb,textureLod(original,uv,0).a));
+ vec3 color=textureLod(reconstructed,uv,0).rgb;
+ if(p.bounded!=0)color=sourceBounds(color,original,at,p.size);
+ imageStore(outputImage,at,vec4(color,textureLod(original,uv,0).a));
 }

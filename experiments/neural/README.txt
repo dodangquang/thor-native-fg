@@ -1,8 +1,11 @@
-Thor neural super-resolution experiments — not yet integrated into the APK
+Thor neural super-resolution experiments — historical pre-integration probes
 
-The installed controller/engine remains version0.9 (native EA47E70F...). These
-standalone probes do not inject a neural model into games or change device
-settings. The full DLSS-like product objective remains in PRODUCT-REQUIREMENTS.
+These standalone probes were measured before integration, with controller0.9
+(native EA47E70F...). Anime4K was integrated in0.10;0.12adds a final anti-ringing
+bound and a paired spatial-quality lab in experiments/spatial-quality. See
+STATUS-VI.txt for current installed evidence. This folder's old raw probes still
+do not inject models or change settings, and their historical timings exclude
+the later crop/resampling/bounding path. The full objective remains required.
 
 Reproduce the host build on the existing Windows/Android toolchain:
   ./build.ps1
@@ -80,9 +83,8 @@ Evidence from the actual Thor, 2026-10-23:
 - research/neural-output-verification.json and the per-model probe logs retain
   all good and bad results. verify_outputs.py reproduces the reference checks.
 
-Next: integrate the lightweight model as a clearly named optional SR path,
-verify independent reference pixels/alpha/crops/resize, compare to bilinear and
-SGSR1 on native-ground-truth game-like fixtures, then test simultaneous SR+FG
-in actual games. Keep ordinary3D quality, temporal SR, fast cuts, GLES, emulator
+Later work integrated the optional model, reference alpha/crops/resize, a
+synthetic paired-image comparison and simultaneous SR+FG in one actual game.
+Keep ordinary3D/native-game quality, temporal SR, fast cuts, GLES, emulator
 coverage and sustained/latency evidence in scope. Do not substitute an anime
 upscaler benchmark for completion of the requested general product.

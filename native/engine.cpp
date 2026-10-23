@@ -60,7 +60,7 @@ void Engine::initSpatial(Api& api,const VkPhysicalDeviceMemoryProperties& mem,Vk
  upCurrent=createImage(out,VK_FORMAT_R8G8B8A8_UNORM,VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT);
  VkSamplerCreateInfo sc{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};sc.magFilter=sc.minFilter=VK_FILTER_LINEAR;sc.mipmapMode=VK_SAMPLER_MIPMAP_MODE_NEAREST;sc.addressModeU=sc.addressModeV=sc.addressModeW=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
  requireVk(a->CreateSampler(a->device,&sc,nullptr,&sampler),"SpatialSampler");
- bool neural=model==SpatialModel::Neural2D;
+ bool neural=model==SpatialModel::Neural2D||model==SpatialModel::NeuralBounded;
  VkDescriptorPoolSize sizes[]={{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,neural?8u:1u},{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,neural?6u:1u}};
  VkDescriptorPoolCreateInfo dp{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};dp.maxSets=neural?6:1;dp.poolSizeCount=2;dp.pPoolSizes=sizes;requireVk(a->CreateDescriptorPool(a->device,&dp,nullptr,&descriptors),"SpatialDescriptors");
  if(neural){
@@ -68,7 +68,7 @@ void Engine::initSpatial(Api& api,const VkPhysicalDeviceMemoryProperties& mem,Vk
   for(auto& feature:neuralFeatures)feature=createImage(in,VK_FORMAT_R16G16B16A16_SFLOAT,VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_STORAGE_BIT);
   if(out.width!=in.width*2||out.height!=in.height*2)neural2x=createImage({in.width*2,in.height*2},VK_FORMAT_R8G8B8A8_UNORM,VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_SAMPLED_BIT);
   const uint32_t* code[]={neural0_spv,neural1_spv,neural2_spv,neural3_spv,neural4_spv,neural5_spv};size_t bytes[]={sizeof(neural0_spv),sizeof(neural1_spv),sizeof(neural2_spv),sizeof(neural3_spv),sizeof(neural4_spv),sizeof(neural5_spv)};
-  for(int i=0;i<(neural2x.image?6:5);i++)neuralPipes[i]=createPipeline(code[i],bytes[i],i<4?std::vector<VkDescriptorType>{S,I}:std::vector<VkDescriptorType>{S,I,S},8);
+  for(int i=0;i<(neural2x.image?6:5);i++)neuralPipes[i]=createPipeline(code[i],bytes[i],i<4?std::vector<VkDescriptorType>{S,I}:std::vector<VkDescriptorType>{S,I,S},i<4?8:12);
   Image* inputs[]={&history[0],&neuralFeatures[0],&neuralFeatures[1],&neuralFeatures[0],&neuralFeatures[1]};
   Image* outputs[]={&neuralFeatures[0],&neuralFeatures[1],&neuralFeatures[0],&neuralFeatures[1],neural2x.image?&neural2x:&upCurrent};
   for(int i=0;i<5;i++){neuralSets[i]=allocate(neuralPipes[i]);sampled(neuralSets[i],0,*inputs[i]);storage(neuralSets[i],1,*outputs[i]);if(i==4)sampled(neuralSets[i],2,history[0]);}
@@ -86,19 +86,21 @@ void Engine::recordSpatial(VkCommandBuffer cmd,VkImage source,VkImageLayout sour
  a->CmdBlitImage(cmd,source,VK_IMAGE_LAYOUT_GENERAL,history[0].image,VK_IMAGE_LAYOUT_GENERAL,1,&copy,VK_FILTER_NEAREST);
  barrier(cmd,source,VK_IMAGE_LAYOUT_GENERAL,sourceLayout,VK_ACCESS_TRANSFER_READ_BIT,VK_ACCESS_MEMORY_READ_BIT);
  barrier(cmd,history[0].image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_TRANSFER_WRITE_BIT,VK_ACCESS_SHADER_READ_BIT);
- if(spatialModel==SpatialModel::Neural2D){
+ if(spatialModel==SpatialModel::Neural2D||spatialModel==SpatialModel::NeuralBounded){
   for(auto& feature:neuralFeatures)barrier(cmd,feature.image,initialized?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL,initialized?(VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT):0,VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT);
   if(neural2x.image)barrier(cmd,neural2x.image,initialized?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL,initialized?VK_ACCESS_SHADER_READ_BIT:0,VK_ACCESS_SHADER_WRITE_BIT);
-  int32_t size[]={int32_t(input.width),int32_t(input.height)};
+  // Clamp once, at the final output resolution. Do not clamp an intermediate
+  // 2x image before it is resized to another scale.
+  int32_t size[]={int32_t(input.width),int32_t(input.height),spatialModel==SpatialModel::NeuralBounded&&!neural2x.image?1:0};
   for(int i=0;i<5;i++){
-   auto& pipeline=neuralPipes[i];a->CmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,pipeline.pipeline);a->CmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,pipeline.layout,0,1,&neuralSets[i],0,nullptr);a->CmdPushConstants(cmd,pipeline.layout,VK_SHADER_STAGE_COMPUTE_BIT,0,8,size);a->CmdDispatch(cmd,((i==4?input.width*2:input.width)+7)/8,((i==4?input.height*2:input.height)+7)/8,1);
+   auto& pipeline=neuralPipes[i];a->CmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,pipeline.pipeline);a->CmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,pipeline.layout,0,1,&neuralSets[i],0,nullptr);a->CmdPushConstants(cmd,pipeline.layout,VK_SHADER_STAGE_COMPUTE_BIT,0,i<4?8:12,size);a->CmdDispatch(cmd,((i==4?input.width*2:input.width)+7)/8,((i==4?input.height*2:input.height)+7)/8,1);
    VkMemoryBarrier memoryBarrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};memoryBarrier.srcAccessMask=VK_ACCESS_SHADER_WRITE_BIT|VK_ACCESS_SHADER_READ_BIT;memoryBarrier.dstAccessMask=VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;a->CmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,0,1,&memoryBarrier,0,nullptr,0,nullptr);
   }
   if(neural2x.image){
    barrier(cmd,neural2x.image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_SHADER_WRITE_BIT,VK_ACCESS_SHADER_READ_BIT);
    // Resample neural RGB while taking alpha directly from the original crop,
    // avoiding two successive 8-bit alpha filters at non-integer output scales.
-   int32_t outSize[]={int32_t(output.width),int32_t(output.height)};auto& pipeline=neuralPipes[5];a->CmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,pipeline.pipeline);a->CmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,pipeline.layout,0,1,&neuralSets[5],0,nullptr);a->CmdPushConstants(cmd,pipeline.layout,VK_SHADER_STAGE_COMPUTE_BIT,0,8,outSize);a->CmdDispatch(cmd,(output.width+7)/8,(output.height+7)/8,1);
+   int32_t outSize[]={int32_t(output.width),int32_t(output.height),spatialModel==SpatialModel::NeuralBounded?1:0};auto& pipeline=neuralPipes[5];a->CmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,pipeline.pipeline);a->CmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,pipeline.layout,0,1,&neuralSets[5],0,nullptr);a->CmdPushConstants(cmd,pipeline.layout,VK_SHADER_STAGE_COMPUTE_BIT,0,12,outSize);a->CmdDispatch(cmd,(output.width+7)/8,(output.height+7)/8,1);
   }
   barrier(cmd,upCurrent.image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_SHADER_WRITE_BIT,VK_ACCESS_TRANSFER_READ_BIT);initialized=true;return;
  }

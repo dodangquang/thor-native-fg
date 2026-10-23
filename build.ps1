@@ -73,7 +73,7 @@ $runtimePackage="com.thor.nativefg.runtime.v$runtimeHash"
 New-Item -ItemType Directory -Force -Path "$build/runtime/lib/arm64-v8a","$build/assets","$build/generated/java/com/thor/nativefg" | Out-Null
 foreach($assets in @("$build/runtime/assets","$build/assets")){
  New-Item -ItemType Directory -Force -Path "$assets/legal/Anime4K","$assets/legal/SGSR1" | Out-Null
- Copy-Item -LiteralPath "$root/third_party/anime4k/LICENSE.txt","$root/third_party/anime4k/Anime4K_Upscale_CNN_x2_S.glsl","$root/shaders/neural_shuffle.comp" -Destination "$assets/legal/Anime4K" -Force
+ Copy-Item -LiteralPath "$root/third_party/anime4k/LICENSE.txt","$root/third_party/anime4k/Anime4K_Upscale_CNN_x2_S.glsl","$root/shaders/neural_shuffle.comp","$root/shaders/neural_resize.comp","$root/shaders/neural_bounds.glsl" -Destination "$assets/legal/Anime4K" -Force
  Copy-Item -LiteralPath "$root/third_party/Snapdragon-GSR-LICENSE.txt","$root/third_party/sgsr1_shader_mobile.frag" -Destination "$assets/legal/SGSR1" -Force
 }
 Copy-Item -LiteralPath "$build/lib/arm64-v8a/libVkLayer_ThorFG.so" -Destination "$build/runtime/lib/arm64-v8a/libVkLayer_ThorFG.so" -Force

@@ -1,7 +1,7 @@
-THOR NATIVE FG 0.11 — BẢN THỬ NGHIỆM ĐỘC LẬP
+THOR NATIVE FG 0.12 — BẢN THỬ NGHIỆM ĐỘC LẬP
 
-Máy đã cài bản 0.11. APK trên ổ E: ThorNativeFG-v0.11-experimental.apk;
-ThorNativeFG-debug.apk cùng bản này. Bản0.10/0.9 vẫn giữ để phục hồi.
+Máy đã cài bản0.12. APK trên ổ E: ThorNativeFG-v0.12-experimental.apk;
+ThorNativeFG-debug.apk cùng bản này. Bản0.11/0.10/0.9 vẫn giữ để phục hồi.
 Hiện công tắc tự động đang TẮT theo lựa chọn mới quan sát trên máy; cập nhật
 giữ nguyên lựa chọn đó. SR/GSR1 được chọn, neural đang bỏ chọn. Không có FG
 tự động hoạt động chỉ vì đã cài APK. Xem STATUS-VI.txt để biết bằng chứng.
@@ -22,12 +22,15 @@ DROIDDECK0.5.0 — DÙNG SR VÀ FG CỦA THOR
    thao tác riêng; hoàn tác preset không tắt FG Thor. Nút 'Tắt layer' tắt FG.
 Preset đã hoàn tác sau kiểm thử; cấu hình DroidDeck hiện là cấu hình của bạn.
 
-Lựa chọn mới: 'Neural SR cho nét vẽ / game 2D (thử nghiệm)'. Bỏ chọn để dùng
-GSR1. Neural dùng Anime4K CNN S, tái tạo 2x rồi resize khi cần; alpha được
+Lựa chọn neural: 'Neural SR giảm viền (thử nghiệm)'. Bỏ chọn để dùng GSR1.
+Neural dùng Anime4K CNN S, tái tạo2x rồi resize khi cần; giới hạn màu ở đầu ra
+để giảm viền sáng quanh nét. Bộ ảnh tổng hợp có cải thiện so neural cũ, nhưng
+không chứng minh hơn mọi game; mạng gốc chuyên nét vẽ. Alpha được
 lấy từ ảnh gốc. Chưa chứng minh chất lượng neural cho mọi game 3D. Sau khi
 đổi thuật toán, lưu game rồi thoát/mở lại giả lập. Lựa chọn đã thử giữ qua
 lần đóng/mở app; giá trị được lưu bằng thuộc tính persist của Android.
-Phần đọc trạng thái báo 'Neural 2D ON' chỉ khi khung hình có pass neural thật.
+Phần đọc trạng thái báo 'Neural 2D giảm viền ON' chỉ khi có pass model mới thật.
+Tiến trình còn dùng runtime0.10/0.11 có thể báo neural cũ; lưu và mở lại để đổi.
 Ô FPS vẫn chỉ có Gốc | FG. Việc chọn neural không tự thay cài đặt giả lập.
 Đã xác nhận neural và FG cùng chạy trong game nói trên, nhưng chưa so chất
 lượng với ảnh native hoặc chứng minh tương thích mọi game/temporal DLSS.

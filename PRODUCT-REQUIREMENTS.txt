@@ -39,6 +39,22 @@ The requested equivalent function/quality remains the target; names and claims
 must accurately distinguish neural/temporal/spatial SR and measured results.
 
 Current verified baseline and gaps:
+- Version0.12 is installed with an optional final source-range clamp on neural
+  RGB (sa2; raw neural sa1 retained as a control). Independent author-owned
+  paired renders cover34development+16additional AA/pose cases. All200candidate
+  GPU outputs passed synchronization validation;102old controls are bit-exact,
+  and the final clamp matches the CPU definition over62,956,800components.
+  Raw->bounded RGB PSNR improves21.282->22.159dB in the development corpus and
+  34.314->34.842dB in the AA/pose corpus, with lower HUD error. These are small
+  synthetic cases, not proof of actual-game/native-reference/DLSS equivalence.
+  Six metric controls,24neural GPU/27legacy GPU/28HUD checks and6external SR+
+  compute-state readbacks/recovery passed. Actual DroidDeck Castlevania ran
+  1024x576->1080p bounded neural plus FG: short menu58.46->115.88FPS;
+  Continue/loading/intro29.17->57.91. Pacing remains uneven. Both save contents,
+  game/controller preferences and automatic-OFF choice were preserved. GPU stage
+  costs varied across headless runs; clock/input latency/sustained auditing,
+  native-game quality, temporal SR, FG motion quality, GLES and other emulators
+  remain required. Do not mark the goal complete from these integration results.
 - Version0.11 adds a recoverable DroidDeck0.5.0 preset for the three settings
   that obstruct Thor's SR path, with stopped-UID/hash guards and selective
   conflict-aware undo. Sixteen Java checks plus actual-device apply/undo,

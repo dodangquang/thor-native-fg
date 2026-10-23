@@ -24,7 +24,7 @@ final class RuntimeMetrics {
         spatial=version2?integer(values,"sr")==1:true;
         spatialWidth=version2?integer(values,"sr_in_w"):inputWidth;spatialHeight=version2?integer(values,"sr_in_h"):inputHeight;
         spatialModel=values.containsKey("sa")?integer(values,"sa"):0;
-        if(spatialModel<0||spatialModel>1)throw new IllegalArgumentException("Unknown spatial algorithm");
+        if(spatialModel<0||spatialModel>2)throw new IllegalArgumentException("Unknown spatial algorithm");
         measuredDisplay="1".equals(values.get("display_valid"));displayedFps=measuredDisplay?number(values,"display_fps"):0;
         if(pid<=0||inputWidth<=0||inputHeight<=0||outputWidth<=0||outputHeight<=0||sourceFps<0||generatedFps<0||sourceFps>2000||generatedFps>4000)
             throw new IllegalArgumentException("Invalid engine telemetry");
@@ -48,6 +48,7 @@ final class RuntimeMetrics {
         return eligible?(measuredDisplay?String.format(Locale.US,"Gốc %.0f | FG %.0f",sourceFps,displayedFps):String.format(Locale.US,"Gốc %.0f | FG ≈%.0f",sourceFps,sourceFps+generatedFps)):String.format(Locale.US,"Gốc %.0f | FG —",sourceFps);
     }
     String detail() {
-        return hasUpscaling()?String.format(Locale.US,(spatialModel==1?"Neural 2D ON":"GSR1 ON")+" · %d×%d → %d×%d",spatialWidth,spatialHeight,outputWidth,outputHeight):"SR: chưa upscale";
+        String algorithm=spatialModel==2?"Neural 2D giảm viền ON":spatialModel==1?"Neural 2D ON":"GSR1 ON";
+        return hasUpscaling()?String.format(Locale.US,algorithm+" · %d×%d → %d×%d",spatialWidth,spatialHeight,outputWidth,outputHeight):"SR: chưa upscale";
     }
 }

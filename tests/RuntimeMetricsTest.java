@@ -25,6 +25,11 @@ public class RuntimeMetricsTest {
         check(neural.hud().equals(separate.hud()),"algorithm selection leaves the two-number HUD unchanged");
         check(RuntimeMetrics.parse(version2.replace("sr=1","sr=0")+" sa=1",10000).detail().equals("SR: chưa upscale"),"cached neural model cannot claim SR without an actual upscale pass");
         check(RuntimeMetrics.parse(version2+" sa=9",10000)==null,"unknown SR algorithm never silently claims GSR1");
+        RuntimeMetrics bounded=RuntimeMetrics.parse(version2+" sa=2",10000);
+        check(bounded!=null&&bounded.detail().contains("giảm viền ON"),"bounded neural has its own actual algorithm identifier");
+        check(bounded.hud().equals(neural.hud()),"bounded neural preserves the requested two-number HUD");
+        check(!RuntimeMetrics.parse(version2.replace("sr=1","sr=0")+" sa=2",10000).hasUpscaling(),"bounded model does not claim a missing upscale pass");
+        check(!bounded.fresh(20000),"old bounded telemetry cannot appear live");
         check(!RuntimeMetrics.parse(version2.replace("sr_in_w=960 sr_in_h=540","sr_in_w=1920 sr_in_h=1080"),10000).hasUpscaling(),"same-size pass cannot claim SR in protocol2");
         check(RuntimeMetrics.parse(line.replace("v=1","v=2"),0)==null,"protocol2 without SR evidence rejected");
         check(!RuntimeMetrics.parse(version2,20000).fresh(20000),"reading an old buffered native log cannot make it appear live again");

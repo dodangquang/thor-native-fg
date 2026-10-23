@@ -51,6 +51,19 @@ def reconstruct(rgba, sections):
     return np.rint(np.clip(output, 0, 1) * 255).astype('u1')
 
 
+def bound_final(source, output):
+    height, width, _ = output.shape
+    sh, sw, _ = source.shape
+    # Independent integer floor division of ((pixel+.5)*source/target-.5).
+    x = ((2 * np.arange(width) + 1) * sw - width) // (2 * width)
+    y = ((2 * np.arange(height) + 1) * sh - height) // (2 * height)
+    neighborhood = [source[np.clip(y[:, None] + dy, 0, sh - 1), np.clip(x + dx, 0, sw - 1), :3]
+                    for dy in range(2) for dx in range(2)]
+    output[..., :3] = np.maximum(np.minimum.reduce(neighborhood),
+                                np.minimum(np.maximum.reduce(neighborhood), output[..., :3]))
+    return output
+
+
 def main():
     shader = (ROOT / 'third_party/anime4k/Anime4K_Upscale_CNN_x2_S.glsl').read_bytes()
     assert hashlib.sha256(shader).hexdigest() == '4c53ec2e287908f7ee7bcb266b0170421626d663576468b7d7dafc62962649a4'
@@ -61,8 +74,8 @@ def main():
     output = pathlib.Path(sys.argv[1])
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open('wb') as file:
-        file.write(struct.pack('<8sI', b'THORNSR1', len(specs)))
-        for index, spec in enumerate(specs):
+        file.write(struct.pack('<8sI', b'THORNSR2', len(specs) * 2))
+        for model, index, spec in [(model, index, spec) for model in (1, 2) for index, spec in enumerate(specs)]:
             sw, sh, cx, cy, width, height, ow, oh = spec
             y, x = np.indices((sh, sw))
             source = np.stack([(x * 7 + y * 3 + index * 11) % 256,
@@ -73,10 +86,12 @@ def main():
             if (ow, oh) != (width * 2, height * 2):
                 neural = np.rint(resize(neural.astype('f4'), ow, oh)).clip(0, 255).astype('u1')
                 neural[..., 3] = np.rint(resize(crop.astype('f4'), ow, oh)[..., 3]).clip(0, 255).astype('u1')
-            file.write(struct.pack('<8I', *spec))
+            if model == 2:
+                neural = bound_final(crop, neural)
+            file.write(struct.pack('<9I', *spec, model))
             file.write(source.tobytes())
             file.write(neural.tobytes())
-    print(f'Prepared {len(specs)} independent neural SR fixtures with alpha/crop/odd sizes and2x/1.5x/2.5x resize')
+    print(f'Prepared {len(specs) * 2} independent raw/bounded neural SR fixtures with alpha/crop/odd sizes and2x/1.5x/2.5x resize')
 
 
 if __name__ == '__main__':
