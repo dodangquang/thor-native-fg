@@ -18,7 +18,7 @@ static VkResult timedPresent(Device& d,Swap& s,VkQueue queue,const VkPresentInfo
  VkPresentTimeGOOGLE time{id,desired};VkPresentTimesInfoGOOGLE times{VK_STRUCTURE_TYPE_PRESENT_TIMES_INFO_GOOGLE};times.swapchainCount=1;times.pTimes=&time;
  VkPresentInfoKHR changed=*info;changed.pNext=&times;auto result=layerPresent(d,queue,&changed);
  if(result==VK_SUCCESS||result==VK_SUBOPTIMAL_KHR){
-  s.pendingPresents[id]={generated,s.cadence.last};
+  s.pendingPresents[id]={generated,s.sourceArrivalNs};
   if(s.pendingPresents.size()>512){for(auto i=s.pendingPresents.begin();i!=s.pendingPresents.end();){if(uint32_t(id-i->first)>256)i=s.pendingPresents.erase(i);else ++i;}}
  }
  return result;

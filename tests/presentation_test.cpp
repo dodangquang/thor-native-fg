@@ -73,5 +73,11 @@ int main(){
   burstSlots&=plan.generate;lastReal=plan.real;
  }}
  check(burstSlots,"55/24FPS with alternating6ms jitter retain all feasible intermediate slots");
+ auto earlyReady=planPairPresentation(base+1000000,refresh,refresh,0,false,base);
+ check(earlyReady.generate&&earlyReady.real>=base+3*refresh&&earlyReady.real-earlyReady.generated==refresh,"fast GPU readiness preserves separate generated and real compositor slots");
+ auto thirty=planPairPresentation(base+1000000,2*refresh,refresh,0,false,base);
+ check(thirty.generated>=base+2*refresh&&thirty.real-thirty.generated==2*refresh,"30FPS retains half-source spacing after the generated target floor");
+ auto lateReady=planPairPresentation(base+4*refresh,refresh,refresh,0,false,base);
+ check(lateReady.generated==base+5*refresh,"the source floor adds no delay when GPU readiness is already late");
  printf("RESULT checks=%d failures=%d\n",checks,failures);return failures?1:0;
 }

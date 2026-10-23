@@ -34,8 +34,8 @@ layout(push_constant) uniform Params { ivec2 outputSize; } p;
 '@
 [IO.File]::WriteAllText("$build/generated/upscale.comp",$prefix+"`n"+$shader,[Text.UTF8Encoding]::new($false))
 $header='#pragma once' + "`n#include <cstdint>`n"
-foreach($name in @('analyze','quality','flow','interpolate','upscale','scene')){
- $src=if($name -eq 'upscale'){"$build/generated/upscale.comp"}else{"$root/shaders/$name.comp"}
+foreach($name in @('analyze','quality','flow','flow_reference','interpolate','upscale','scene')){
+ $src=if($name -eq 'upscale'){"$build/generated/upscale.comp"}elseif($name -eq 'flow_reference'){"$root/tests/reference/flow_serial.comp"}else{"$root/shaders/$name.comp"}
  & "$shaderBin/glslc.exe" --target-env=vulkan1.1 -I "$root/shaders" -O $src -o "$build/$name.spv";Check "glslc $name"
  & "$shaderBin/spirv-val.exe" --target-env vulkan1.1 "$build/$name.spv";Check "spirv-val $name"
  $bytes=[IO.File]::ReadAllBytes("$build/$name.spv")
@@ -48,6 +48,7 @@ $common=@('-std=c++17','-O2','-fPIC','-I',"$build/generated",'-I',"$root/native"
 & $cc @common -shared "$root/native/engine.cpp" "$root/native/layer.cpp" -o "$build/lib/arm64-v8a/libVkLayer_ThorFG.so" -llog '-Wl,-Bsymbolic' '-Wl,-z,max-page-size=16384';Check 'Vulkan layer'
 & $cc @common -shared "$root/native/engine.cpp" "$root/native/demo.cpp" -o "$build/lib/arm64-v8a/libthor_demo.so" -landroid -llog -lvulkan '-Wl,-z,max-page-size=16384';Check 'Vulkan demo'
 & $cc @common "$root/native/engine.cpp" "$root/native/selftest.cpp" -o "$build/thor-selftest" -lvulkan -llog;Check 'GPU selftest'
+& $cc @common "$root/native/engine.cpp" "$root/native/benchmark.cpp" -o "$build/thor-gpu-bench" -lvulkan -llog;Check 'GPU stage benchmark'
 & $cc @common "$root/tests/presentation_test.cpp" -o "$build/thor-presentation-test";Check 'Presentation timing selftest'
 & $cc @common "$root/tests/auto_config_test.cpp" -o "$build/thor-auto-config-test";Check 'Automatic activation configuration selftest'
 & $cc @common "$root/tests/auto_ipc_test.cpp" -o "$build/thor-auto-ipc-test" -ldl;Check 'Automatic activation companion integration selftest'

@@ -62,10 +62,15 @@ struct SourceCadence {
 };
 
 struct PairSchedule {bool generate;uint64_t generated,real;};
-inline PairSchedule planPairPresentation(uint64_t now,uint64_t half,uint64_t refresh,uint64_t lastReal,bool bounded=true){
+inline PairSchedule planPairPresentation(uint64_t now,uint64_t half,uint64_t refresh,uint64_t lastReal,bool bounded=true,uint64_t source=0){
  half=std::max(half,refresh);
  uint64_t generated=lastReal?lastReal+half:now+refresh;
  if(generated<now+refresh/3)generated=now+refresh;
+ // A much faster compute pass must not pull the real frame into the native
+ // compositor's first generated-frame slot. Anchor the generated target to
+ // the source call as well as GPU readiness; the real target follows by half
+ // a source interval. This floor is independent of the shader implementation.
+ if(source)generated=std::max(generated,source+2*refresh);
  // A cadence estimate can remain slightly slower than current arrivals.
  // Advancing its phase without a bound accumulates future cycles forever.
  // Spend at most three refresh cycles of lookahead after the input is ready;

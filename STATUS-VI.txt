@@ -1,10 +1,70 @@
-THOR NATIVE FG — NHẬT KÝ KIỂM CHỨNG (CẬP NHẬT0.7)
+THOR NATIVE FG — NHẬT KÝ KIỂM CHỨNG (CẬP NHẬT 0.9)
 
-HIỆN TẠI: APK0.7 và bootstrap0.3 đã cài. Engine vẫn thử nghiệm; mục tiêu
-DLSS-like đầy đủ chưa đạt. Các mục0.1–0.6 phía dưới là lịch sử, không phải
-trạng thái máy hiện tại. Xem phần0.7 và PRODUCT-REQUIREMENTS.txt.
+HIỆN TẠI: APK 0.9 và bootstrap 0.3 đã cài, đã reboot kiểm tra tự động.
+Engine vẫn thử nghiệm; mục tiêu DLSS-like đầy đủ chưa đạt. Các mục 0.1–0.8
+phía dưới là lịch sử. Xem phần 0.9 và PRODUCT-REQUIREMENTS.txt.
 
-ỨNG VIÊN0.8 — GIỚI HẠN LỊCH CHỜ, CHƯA THAY BẢN0.7 ĐANG DÙNG
+CẬP NHẬT 0.9 — GIẢM CHI PHÍ OPTICAL FLOW, GIỮ KẾT QUẢ THUẬT TOÁN
+- Mỗi workgroup xử lý một block, chia 81 ứng viên tìm chuyển động cho 64 lane
+  và dùng chung 16 mẫu. Reduction giữ thứ tự chọn khi chi phí bằng nhau.
+  Không tăng phạm vi chuyển động hoặc tuyên bố tăng chất lượng từ tối ưu này.
+- Trên Adreno 740 ở 1080p, benchmark GPU cùng binary: flow serial 4,454 ms,
+  cooperative 0,244 ms; toàn input pass 5,517→1,302 ms. Đo tách từng stage,
+  không gồm render game, acquisition, output-present hoặc độ trễ tay cầm.
+  research/gpu-stages-{serial-control,cooperative}-1080.txt.
+- GPU readback trùng bit với shader serial: 468 frame ở 256x144, 142 frame
+  ở 1080p, gồm ảnh tĩnh/chuyển động nhanh/cut/reset history. Bản cuối đổi
+  shader qua lại nóng ở kích thước lẻ 257x145: 372 frame trùng bit cả flow,
+  midpoint, QualityStats và frame thật; frame thật cũng trùng nguồn.
+  research/gpu-flow-reference-comparison.txt và flow-final-gpu-toggle-comparison.txt.
+- Cả 8 cặp đối chiếu trong Castlevania trên custom Turnip đều PASS, không có
+  pixel khác. Chế độ shadow chỉ dành kiểm chứng, tự giải phóng sau 8 cặp và
+  đã tắt trước khi đo hiệu năng. research/droid-flow-compare.txt.
+- GPU nhanh hơn từng làm frame thật/nội suy rơi cùng slot. Thêm mốc tối thiểu
+  generated = source-present-arrival + 2 refresh; vẫn chốt target sau submit.
+  Reset cadence sau cold preparation, giữ timestamp gốc riêng để báo frame age
+  không che thời gian chuẩn bị. Đây chưa phải lịch căn pha vblank thực.
+  Lịch bounded 0.8 tiếp tục chỉ là tùy chọn nghiên cứu; mặc định dùng legacy.
+- Bản cuối qua 27/27 kiểm thử GPU hình ảnh/SR và 32/32 kiểm thử thời gian.
+  Fixture shared queue: 30→59,92 FPS; 60→117,83; nguồn 118,82 giữ 118,85,
+  không tạo frame phụ. Private queue 60→118,84. Không có lỗi validation trong
+  các log này. research/flow-final-{gpu,presentation}-selftest.txt, flow-summary.json.
+- Cùng title menu Castlevania, cùng PID 12057 và cấu hình SR độc lập
+  1280x720→1920x1080: cooperative A 55,51→110,77 FPS, B 53,86→105,78;
+  serial 54,83→104,75; SR-only 57,92→57,67. GPU input cooperative 1,98/2,00 ms
+  so với serial 7,04 ms. Age frame thật 32,18/32,19 ms so với 40,36 ms;
+  SR-only 15,27 ms. p95 gap A 8,42 ms, B 16,82 ms, serial 16,83 ms: vẫn có
+  biến thiên, không gọi đây là nhịp hoàn hảo hoặc tăng FPS gốc được chứng minh.
+  18/19 cửa sổ mỗi lượt, bỏ 3 giây đầu. research/droid-flow-case-summary.json.
+- Intro riêng: 25,53→48,78 FPS, GPU input 1,538 ms, real-frame age 49,282 ms,
+  p95 gap 33,651 ms; có khoảng khựng khi chuyển cảnh. Không phải cùng cảnh
+  đối chứng serial, không dùng để khẳng định cải thiện chất lượng cut/combat.
+- Lifecycle đúng native EA47... PID 28518: 6/6 SR readback, 6/6 compute-state,
+  recreate và hot OFF/ON khôi phục ít nhất 3 cửa sổ generated/display-valid,
+  không có lỗi Khronos/sync validation. research/flow-final-qa-lifecycle.txt.
+- Đã khôi phục save và session.xml từ backup mới của lượt này; SHA/UID/GID/
+  mode của hai save cùng SHA cấu hình khớp. Đã gỡ hai APK QA, xóa override,
+  giữ 16 rule, auto 1/SR 1, GPU debug 0 và về Home. Cấu hình gốc của DroidDeck
+  có thể tự upscale trước Thor; khi đó Thor báo SR=0 đúng thực tế, không tính
+  sẵn phép upscale của giả lập là SR riêng. research/flow-save-verification.json.
+- Đã cài controller 0.9, provider EA47... được giữ qua reboot. DroidDeck PID
+  10376 tự nạp cooperative, Steam vào thư viện và có presentation timing
+  khoảng 119 FPS từ 59 FPS; không có override FG/flow hoặc layer toàn hệ thống.
+  SR=0 trong lượt Steam với cấu hình gốc. Không phải benchmark game/SR sau boot.
+  system_server 2170 và SurfaceFlinger 2301 không map thư viện Thor.
+- Boot vẫn ghi một SurfaceFlinger abort lúc đầu: 'no suitable EGLConfig found,
+  giving up', rồi hệ thống phục hồi. Lỗi tương tự đã có ở lượt boot 0.7;
+  chưa xác định nguyên nhân, không gọi lượt boot này là sạch lỗi hoặc quy lỗi
+  firmware/Thor khi chưa có đối chứng. Giữ log flow-post-boot-crash.txt.
+- APK ThorNativeFG-v0.9-experimental.apk SHA256:
+ A793B8CB64B0145EAA3BADCAB7A2977D94171CD2759496BBC2C0BBFF86CCFA0E
+  Native SHA256:
+ EA47E70F436819FA5D5B806E9DD3D7A3DC9858A199314B9380CA26D691E03B50
+  Engine vẫn dùng coarse block flow và spatial SGSR1; neural/temporal SR,
+  GLES, kiểm chứng gameplay cut/HUD/occlusion và sustained/input-latency còn
+  phải làm. Không đánh dấu mục tiêu sản phẩm hoàn thành.
+
+LỊCH SỬ ỨNG VIÊN 0.8 — GIỚI HẠN LỊCH CHỜ, ĐÃ GIỮ 0.7 SAU LƯỢT ĐÓ
 - Mục đích: ngăn lastRealDesired cộng dồn nhiều chu kỳ khi ước lượng cadence
   chậm hơn nguồn mới. Kiểm tra trước khi lấy image phụ; nếu lịch đã quá xa,
   bỏ frame nội suy và chỉ tiến một slot cho frame thật, giữ thứ tự deadline.

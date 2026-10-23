@@ -39,13 +39,36 @@ The requested equivalent function/quality remains the target; names and claims
 must accurately distinguish neural/temporal/spatial SR and measured results.
 
 Current verified baseline and gaps:
+- Version 0.9 is installed and selected after an actual reboot. A cooperative
+  64-lane block-search implementation preserves the serial algorithm's outputs:
+  GPU readbacks are bit-exact across motion/cut/reset fixtures and eight real
+  Castlevania frames on custom Turnip. The motion range/quality is unchanged.
+  Stock-Adreno 1080p flow cost fell 4.454 -> 0.244 ms; full input pass 5.517 ->
+  1.302 ms in headless profiling, excluding game rendering/presentation/latency.
+  In the same actual-game title menu, two cooperative runs displayed 110.77 /
+  105.78 FPS from 55.51 / 53.86 source versus serial 104.75 from 54.83. Input
+  GPU cost fell about 7 -> 2 ms and real-frame API-present age about 40 -> 32 ms;
+  SR-only age was about 15 ms. These are short scene-specific results, with
+  pacing variation, not sustained source-performance or input-latency proof.
+  A separate intro run produced 48.78 from 25.53 FPS but retained transition
+  hitches. All game performance cases used independent 720p -> 1080p SR.
+  Original emulator settings/saves were restored; their built-in upscale may
+  leave no low-resolution blit for Thor, which then truthfully reports SR off.
+  Source-anchored target floors and a cold-preparation cadence reset preserve
+  generated output with faster compute; true vblank phase alignment is pending.
+  Final checks: 27 GPU fixtures, 32 timing checks, bit-exact hot mode switching,
+  validated private/shared presentation and SR/compute-state recreation. After
+  reboot, default automatic injection worked in DroidDeck/Steam without global
+  layers or overrides. An early SurfaceFlinger EGLConfig abort recovered and
+  remains unattributed; a similar event occurred with 0.7. No clean-boot claim.
+  Neural/temporal SR, GLES, gameplay quality and sustained testing remain required.
 - Candidate0.8 adds a bounded schedule with a pre-acquire guard and final
   timestamps chosen after output submission.29timing tests pass. A24->30FPS
   no-cut workload keeps59.94displayed with real-frame age55.86->42.24ms, but
   p95gap worsens16.83->25.23ms. A2-refresh budget was rejected for losing a
   quarter of displayed frames under24FPS jitter;3refreshes preserve that fixture.
-  Real Castlevania menu/intro show no material age improvement. Controller and
-  default engine on the user's device remain0.7 after scoped candidate testing.
+  Real Castlevania menu/intro showed no material age improvement. Controller and
+  default engine were returned to 0.7 at the end of that scoped candidate trial.
   Candidate pacing is not a demonstrated overall benefit or product completion.
 - Version0.7 fixes source-cadence misclassification under alternating arrivals;
   bursty90/120FPS no longer activates2x in validated fixtures.22timing tests pass.

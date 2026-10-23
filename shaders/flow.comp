@@ -8,25 +8,49 @@ layout(binding=2,rgba32f) uniform writeonly image2D flowImage;
 #include "quality.glsl"
 layout(push_constant) uniform Params { ivec2 inputSize; ivec2 gridSize; float phase; int history; } p;
 float delta(vec3 a, vec3 b) { return dot(abs(a-b),vec3(0.299,0.587,0.114)); }
-vec3 readFrame(bool reverse, vec2 uv) { return reverse ? textureLod(currFrame,uv,0).rgb : textureLod(prevFrame,uv,0).rgb; }
-vec3 target(bool reverse, vec2 uv) { return reverse ? textureLod(prevFrame,uv,0).rgb : textureLod(currFrame,uv,0).rgb; }
-vec3 search(bool reverse,ivec2 block) {
-  vec2 fullGrid=vec2(p.gridSize*8); vec2 center=(vec2(block*8)+4.0)/fullGrid;
-  float best=100.0; vec2 chosen=vec2(0);
-  for(int y=-4;y<=4;y++) for(int x=-4;x<=4;x++) {
-    vec2 offset=vec2(x,y)/fullGrid; float cost=0;
-    for(int j=-3;j<=3;j+=2) for(int i=-3;i<=3;i+=2) {
-      vec2 uv=center+vec2(i,j)/fullGrid;
-      cost+=delta(readFrame(reverse,uv),target(reverse,uv+offset));
-    }
-    cost=cost/16.0 + 0.00003*float(x*x+y*y);
-    if(cost<best) { best=cost;chosen=vec2(x,y); }
-  }
-  return vec3(chosen/fullGrid,best);
-}
+// One workgroup owns a block. Share its16reference samples; independent lanes
+// evaluate the same81candidates as the serial reference. Reduction includes the
+// original candidate index so ties preserve the serial y/x traversal exactly.
+shared vec4 previousPatch[16],currentPatch[16];
+shared float forwardCost[64],backwardCost[64];
+shared uint forwardIndex[64],backwardIndex[64];
 void main(){
-  ivec2 at=ivec2(gl_GlobalInvocationID.xy); if(any(greaterThanEqual(at,p.gridSize)))return;
-  vec3 f=search(false,at),b=search(true,at);
+  ivec2 at=ivec2(gl_WorkGroupID.xy);if(any(greaterThanEqual(at,p.gridSize)))return;
+  uint lane=gl_LocalInvocationIndex;
+  vec2 fullGrid=vec2(p.gridSize*8),center=(vec2(at*8)+4.0)/fullGrid;
+  if(lane<16u){
+    ivec2 sampleAt=ivec2(int(lane)%4,int(lane)/4)*2-3;
+    vec2 uv=center+vec2(sampleAt)/fullGrid;
+    previousPatch[lane]=textureLod(prevFrame,uv,0);
+    currentPatch[lane]=textureLod(currFrame,uv,0);
+  }
+  barrier();
+  float fBest=100.0,bBest=100.0;uint fIndex=81u,bIndex=81u;
+  for(uint candidate=lane;candidate<81u;candidate+=64u){
+    int x=int(candidate)%9-4,y=int(candidate)/9-4;vec2 offset=vec2(x,y)/fullGrid;
+    float fCost=0,bCost=0;int sampleIndex=0;
+    for(int j=-3;j<=3;j+=2)for(int i=-3;i<=3;i+=2){
+      vec2 uv=center+vec2(i,j)/fullGrid;
+      fCost+=delta(previousPatch[sampleIndex].rgb,textureLod(currFrame,uv+offset,0).rgb);
+      bCost+=delta(currentPatch[sampleIndex].rgb,textureLod(prevFrame,uv+offset,0).rgb);
+      sampleIndex++;
+    }
+    fCost=fCost/16.0+0.00003*float(x*x+y*y);bCost=bCost/16.0+0.00003*float(x*x+y*y);
+    if(fCost<fBest){fBest=fCost;fIndex=candidate;}
+    if(bCost<bBest){bBest=bCost;bIndex=candidate;}
+  }
+  forwardCost[lane]=fBest;backwardCost[lane]=bBest;forwardIndex[lane]=fIndex;backwardIndex[lane]=bIndex;
+  barrier();
+  for(uint stride=32u;stride>0u;stride/=2u){
+    if(lane<stride){uint other=lane+stride;
+      if(forwardCost[other]<forwardCost[lane]||(forwardCost[other]==forwardCost[lane]&&forwardIndex[other]<forwardIndex[lane])){forwardCost[lane]=forwardCost[other];forwardIndex[lane]=forwardIndex[other];}
+      if(backwardCost[other]<backwardCost[lane]||(backwardCost[other]==backwardCost[lane]&&backwardIndex[other]<backwardIndex[lane])){backwardCost[lane]=backwardCost[other];backwardIndex[lane]=backwardIndex[other];}
+    }
+    barrier();
+  }
+  if(lane!=0u)return;
+  vec3 f=vec3(vec2(int(forwardIndex[0])%9-4,int(forwardIndex[0])/9-4)/fullGrid,forwardCost[0]);
+  vec3 b=vec3(vec2(int(backwardIndex[0])%9-4,int(backwardIndex[0])/9-4)/fullGrid,backwardCost[0]);
   imageStore(flowImage,at,vec4(f.xy,b.xy));
   atomicAdd(stats.valid,(f.z<0.075 && b.z<0.075)?1u:0u);
   vec2 scale=vec2(p.gridSize*8);

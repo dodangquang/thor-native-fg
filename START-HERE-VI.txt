@@ -1,19 +1,21 @@
-THOR NATIVE FG 0.7 — BẢN THỬ NGHIỆM ĐỘC LẬP
+THOR NATIVE FG 0.9 — BẢN THỬ NGHIỆM ĐỘC LẬP
 
-Máy hiện giữ bản0.7. Mã nguồn và ThorNativeFG-debug.apk đang là ứng viên0.8
-để nghiên cứu pacing; chưa được chọn làm bản đang dùng vì lợi ích trong game
-chưa rõ. ThorNativeFG-v0.7-installed.apk là bản sao đúng APK đã cài;
-ThorNativeFG-v0.8-candidate.apk là bản thử tiếp theo. Xem phần ứng viên trong STATUS-VI.txt.
+Máy đã cài bản 0.9 và kiểm tra tự nạp sau reboot. APK trên ổ E:
+ThorNativeFG-v0.9-experimental.apk; ThorNativeFG-debug.apk cùng bản này.
+Bản sao controller 0.7 vẫn giữ để phục hồi. Không cần mở app Thor trước mỗi
+lần chơi khi chế độ tự động đang bật. Xem chi tiết trong STATUS-VI.txt.
 
-Bản0.7 sửa nhận diện tốc độ nguồn khi frame tới không đều: nguồn90/120FPS
-không còn bị nhận nhầm để bật nội suy2x. Layer cũng giữ timestamp riêng của
-ứng dụng, tránh lấy mất bản ghi mà game cần. Không cần bật thêm nút.
-FG tiếp tục chạy qua worker của0.6; custom Turnip của DroidDeck dùng queue
-chung có đồng bộ. Đã chạy SR1280x720→1080p và FG trong menu/intro Castlevania.
-Pacing và độ trễ vẫn cần cải thiện: trong menu, FG đạt khoảng99FPS từ53FPS
-nguồn nhưng thời gian API-present→timestamp trình bày frame thật khoảng40ms,
-so với15ms khi chỉ SR. Đây không phải phép đo độ trễ tay cầm. Chưa đạt chất
-lượng/tương thích đầy đủ như DLSS. Xem STATUS-VI.txt và PRODUCT-REQUIREMENTS.txt.
+Bản 0.9 giảm chi phí optical flow, giữ nguyên thuật toán. Trong title menu
+Castlevania trên DroidDeck: GPU input FG khoảng 2 ms thay vì 7 ms; hai lượt
+đo đạt 106–111 FPS hiển thị từ 54–56 FPS nguồn, với SR riêng 720p→1080p.
+Frame age khoảng 32 ms so với 40 ms của shader cũ; SR-only khoảng 15 ms.
+Đây không phải độ trễ tay cầm. Intro khoảng 26→49 FPS còn khựng chuyển cảnh.
+Chưa đạt chất lượng/tương thích đầy đủ như DLSS. Bản này giữ các sửa cadence
+và timestamp của 0.7; nguồn gần 119 FPS sẽ không nội suy thêm.
+Phép SR riêng cần ảnh render thấp và đường blit phù hợp. Nếu cấu hình gốc
+DroidDeck đã phóng ảnh lên 1080p trước Thor thì Thor báo chưa upscale;
+không tự đổi cài đặt giả lập. Các số game trên dùng cấu hình đối chứng đã
+tắt effects/upscaler/FG tích hợp, sau đó đã khôi phục cấu hình gốc và save.
 
 Bản0.5 đã sửa lỗi Steam kẹt sau khi cập nhật APK Thor trong lúc DroidDeck đã mở.
 Engine được đóng gói trong runtime cùng chữ ký, kiểm SHA-256, cài tự động khi
