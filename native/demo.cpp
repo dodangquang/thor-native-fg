@@ -90,15 +90,18 @@ struct Demo {
  }
  void run(){
   using Clock=std::chrono::steady_clock;auto next=Clock::now(),since=next;uint64_t frame=0,requests=0;double processing=0;int lastMode=-1;
-  char target[PROP_VALUE_MAX]{},jitter[PROP_VALUE_MAX]{};__system_property_get("debug.thorfg.demo_fps",target);__system_property_get("debug.thorfg.demo_jitter_ms",jitter);
+  char target[PROP_VALUE_MAX]{},jitter[PROP_VALUE_MAX]{},profile[PROP_VALUE_MAX]{};__system_property_get("debug.thorfg.demo_fps",target);__system_property_get("debug.thorfg.demo_jitter_ms",jitter);__system_property_get("debug.thorfg.demo_profile",profile);
   int sourceFps=std::atoi(target);if(sourceFps<15||sourceFps>240)sourceFps=30;int frameUs=1000000/sourceFps;
   int jitterUs=std::clamp(std::atoi(jitter)*1000,0,frameUs/2-250);LOG("DEMO_SOURCE_TARGET fps=%d jitter_us=%d",sourceFps,jitterUs);
+  bool step=!std::strcmp(profile,"step");double simulation=0;
   while(running){int m=mode.load();if(m!=lastMode){e.hasHistory=false;lastMode=m;LOG("MODE %d",m);}begin();e.barrier(cmd,source.image,sourceInitialized?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL,sourceInitialized?VK_ACCESS_TRANSFER_READ_BIT:0,VK_ACCESS_SHADER_WRITE_BIT);sourceInitialized=true;
-   struct {int32_t size[2];float time;int32_t cut;} p{{640,360},float(frame)/sourceFps,int((frame/(sourceFps*5))%2)};a.CmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,scene.pipeline);a.CmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,scene.layout,0,1,&sceneSet,0,nullptr);a.CmdPushConstants(cmd,scene.layout,VK_SHADER_STAGE_COMPUTE_BIT,0,16,&p);a.CmdDispatch(cmd,80,45,1);
+   int currentFps=step&&frame>=uint64_t(sourceFps*3)?sourceFps+6:sourceFps;frameUs=1000000/currentFps;
+   if(step&&frame==uint64_t(sourceFps*3))LOG("DEMO_RATE_PHASE fps=%d frame=%llu",currentFps,(unsigned long long)frame);
+   struct {int32_t size[2];float time;int32_t cut;} p{{640,360},step?float(simulation):float(frame)/sourceFps,step?0:int((frame/(sourceFps*5))%2)};a.CmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,scene.pipeline);a.CmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,scene.layout,0,1,&sceneSet,0,nullptr);a.CmdPushConstants(cmd,scene.layout,VK_SHADER_STAGE_COMPUTE_BIT,0,16,&p);a.CmdDispatch(cmd,80,45,1);
    auto before=Clock::now();bool had=e.hasHistory;if(m==1||m==2||m==4)e.record(cmd,source.image,VK_IMAGE_LAYOUT_GENERAL);else e.barrier(cmd,source.image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_SHADER_WRITE_BIT,VK_ACCESS_TRANSFER_READ_BIT);submit();processing+=std::chrono::duration<double,std::milli>(Clock::now()-before).count();
-   std::this_thread::sleep_until(next+std::chrono::microseconds((frame%2)?jitterUs:-jitterUs));
+   int thisJitter=std::min(jitterUs,frameUs/2-250);std::this_thread::sleep_until(next+std::chrono::microseconds((frame%2)?thisJitter:-thisJitter));
    if(m==2&&had&&e.readQuality().allow){if(!show(e.upMid,false))break;requests++;std::this_thread::sleep_until(next+std::chrono::microseconds(frameUs/2));}
-   if(m==4){if(!showQa(p.time,p.cut))break;}else if(!show((m==1||m==2)?e.upCurrent:source,m==0||m==3))break;requests++;frame++;next+=std::chrono::microseconds(frameUs);if(next<Clock::now()-std::chrono::milliseconds(100))next=Clock::now();
+   if(m==4){if(!showQa(p.time,p.cut))break;}else if(!show((m==1||m==2)?e.upCurrent:source,m==0||m==3))break;requests++;frame++;simulation+=1.0/currentFps;next+=std::chrono::microseconds(frameUs);if(next<Clock::now()-std::chrono::milliseconds(100))next=Clock::now();
    if(frame%120==0){double seconds=std::chrono::duration<double>(Clock::now()-since).count();LOG("COUNTERS input=%llu present_requests=%llu elapsed=%.3fs requests_per_s=%.2f avg_record_submit_wait_ms=%.3f (NOT displayed FPS/GPU timestamps)",(unsigned long long)frame,(unsigned long long)requests,seconds,requests/seconds,processing/frame);}
   }
  }

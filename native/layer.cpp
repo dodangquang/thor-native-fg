@@ -34,7 +34,7 @@ struct Swap {
  bool spatialCompatible=false;
  bool timing=false;uint32_t presentID=0;PresentationWindow presentation;
  struct PendingPresent{bool generated;uint64_t source;};std::unordered_map<uint32_t,PendingPresent> pendingPresents;
- SourceCadence cadence;uint64_t refreshNs=16666667,lastRealDesired=0,rateSkipped=0;
+ SourceCadence cadence;uint64_t refreshNs=16666667,lastRealDesired=0,rateSkipped=0,budgetSkipped=0;bool scheduleBounded=true;
  VkFence workDone{};bool workPending=false;
  VkQueryPool queries{};uint32_t timestampBits=0;bool outputTimed=false;
  uint32_t costFrames=0,inputGpuSamples=0,outputGpuSamples=0;
@@ -98,7 +98,7 @@ static void reportMetrics(Swap& s,uint32_t qualityFlags,double blockingMs){
  // These are incoming and generated PRESENT REQUEST rates. Neither rate is a
  // scanout measurement. Keep dimensions in the protocol so the HUD cannot
  // mislabel the current same-size filter as active super resolution.
- LOG("THOR_METRICS v=2 pid=%d swap=%llu eligible=%d in_w=%u in_h=%u out_w=%u out_h=%u source_fps=%.2f generated_fps=%.2f sources=%llu generated=%llu cuts=%llu holds=%llu flow_skips=%llu flags=%u blocking_ms=%.3f sr=%d sr_in_w=%u sr_in_h=%u sr_presents=%llu uptime_ms=%llu display_valid=%d display_fps=%.2f display_generated_fps=%.2f display_samples=%zu gap_median_ms=%.3f gap_p95_ms=%.3f gap_max_ms=%.3f rate_skips=%llu fg_gpu_input_ms=%.3f fg_gpu_output_ms=%.3f fg_gpu_input_samples=%u fg_gpu_output_samples=%u fg_cpu_quality_wait_ms=%.3f fg_cpu_previous_wait_ms=%.3f fg_cpu_present_ms=%.3f fg_cpu_processing_ms=%.3f fg_cost_frames=%u presenter=%s fg_cpu_source_call_last_ms=%.3f fg_async_backpressure_last_ms=%.3f source_interval_ms=%.3f cadence_policy=%s api_to_present_real_ms=%.3f api_to_present_real_p95_ms=%.3f api_to_present_generated_ms=%.3f api_to_present_generated_p95_ms=%.3f api_to_present_real_samples=%zu api_to_present_generated_samples=%zu",
+ LOG("THOR_METRICS v=2 pid=%d swap=%llu eligible=%d in_w=%u in_h=%u out_w=%u out_h=%u source_fps=%.2f generated_fps=%.2f sources=%llu generated=%llu cuts=%llu holds=%llu flow_skips=%llu flags=%u blocking_ms=%.3f sr=%d sr_in_w=%u sr_in_h=%u sr_presents=%llu uptime_ms=%llu display_valid=%d display_fps=%.2f display_generated_fps=%.2f display_samples=%zu gap_median_ms=%.3f gap_p95_ms=%.3f gap_max_ms=%.3f rate_skips=%llu fg_gpu_input_ms=%.3f fg_gpu_output_ms=%.3f fg_gpu_input_samples=%u fg_gpu_output_samples=%u fg_cpu_quality_wait_ms=%.3f fg_cpu_previous_wait_ms=%.3f fg_cpu_present_ms=%.3f fg_cpu_processing_ms=%.3f fg_cost_frames=%u presenter=%s fg_cpu_source_call_last_ms=%.3f fg_async_backpressure_last_ms=%.3f source_interval_ms=%.3f cadence_policy=%s present_policy=%s budget_skips=%llu",
   getpid(),(unsigned long long)(uintptr_t)s.handle,s.supported&&!s.disabled,
   s.extent.width,s.extent.height,s.extent.width,s.extent.height,
   (s.sources-s.metricsSources)/seconds,(s.generated-s.metricsGenerated)/seconds,
@@ -107,7 +107,16 @@ static void reportMetrics(Swap& s,uint32_t qualityFlags,double blockingMs){
   s.spatialActive,s.spatialInput.width,s.spatialInput.height,(unsigned long long)s.spatialPresents,(unsigned long long)uptime,
   display.valid,display.fps,display.generatedFps,display.samples,display.medianGapMs,display.p95GapMs,display.maxGapMs,(unsigned long long)s.rateSkipped,
   s.inputGpuTotal/std::max(1u,s.inputGpuSamples),s.outputGpuTotal/std::max(1u,s.outputGpuSamples),s.inputGpuSamples,s.outputGpuSamples,
-  s.qualityWaitTotal/std::max(1u,s.costFrames),s.previousWaitTotal/std::max(1u,s.costFrames),s.presentTotal/std::max(1u,s.costFrames),s.callTotal/std::max(1u,s.costFrames),s.costFrames,s.asyncFrame?(s.sharedFrame?"async_shared":"async_queue"):"fence",s.lastSourceCallMs.load(),s.lastBackpressureMs.load(),s.cadence.interval()/1e6,s.cadence.legacy?"legacy":"trimmed_mean",display.realAgeMs,display.realAgeP95Ms,display.generatedAgeMs,display.generatedAgeP95Ms,display.realAgeSamples,display.generatedAgeSamples);
+  s.qualityWaitTotal/std::max(1u,s.costFrames),s.previousWaitTotal/std::max(1u,s.costFrames),s.presentTotal/std::max(1u,s.costFrames),s.callTotal/std::max(1u,s.costFrames),s.costFrames,s.asyncFrame?(s.sharedFrame?"async_shared":"async_queue"):"fence",s.lastSourceCallMs.load(),s.lastBackpressureMs.load(),s.cadence.interval()/1e6,s.cadence.legacy?"legacy":"trimmed_mean",s.scheduleBounded?"bounded":"legacy",(unsigned long long)s.budgetSkipped);
+ // liblog truncates formatted messages at1023bytes on this Android build.
+ // Keep optional frame-age diagnostics separate from the HUD protocol.
+ LOG("THOR_FRAME_AGE v=1 pid=%d swap=%llu uptime_ms=%llu "
+     "api_to_present_real_ms=%.3f api_to_present_real_p95_ms=%.3f "
+     "api_to_present_generated_ms=%.3f api_to_present_generated_p95_ms=%.3f "
+     "api_to_present_real_samples=%zu api_to_present_generated_samples=%zu",
+     getpid(),(unsigned long long)(uintptr_t)s.handle,(unsigned long long)uptime,
+     display.realAgeMs,display.realAgeP95Ms,display.generatedAgeMs,display.generatedAgeP95Ms,
+     display.realAgeSamples,display.generatedAgeSamples);
  s.metricsAt=now;s.metricsSources=s.sources;s.metricsGenerated=s.generated;
  s.costFrames=s.inputGpuSamples=s.outputGpuSamples=0;
  s.inputGpuTotal=s.outputGpuTotal=s.qualityWaitTotal=s.previousWaitTotal=s.presentTotal=s.callTotal=0;
@@ -244,6 +253,13 @@ static VkResult finishPreparedFrame(std::shared_ptr<Device> d,std::shared_ptr<Sw
  if(quality.reasons&QUALITY_CUT)++s.cutSkipped;
  if(quality.reasons&QUALITY_HOLDOFF)++s.holdSkipped;
  if(quality.reasons&(QUALITY_LOW_FLOW|QUALITY_FAST_MOTION))++s.flowSkipped;
+ uint64_t generatedTime=0,realTime=0;bool budgetRejected=false;
+ char pacing[PROP_VALUE_MAX]{};__system_property_get("debug.thorfg.pacing",pacing);
+ if(pair&&s.timing&&pacing[0]!='0'){
+  auto plan=planPairPresentation(monotonicNs(),s.cadence.interval()/2,s.refreshNs,s.lastRealDesired,s.scheduleBounded);
+  generatedTime=plan.generated;realTime=plan.real;
+  if(!plan.generate){pair=false;budgetRejected=true;++s.budgetSkipped;}
+ }
  // Acquire only after the GPU has accepted the pair. A rejected pair must
  // neither occupy a presentation slot with a duplicate nor leak an acquired
  // spare. The original game's image is preserved exactly on this path.
@@ -254,7 +270,7 @@ static VkResult finishPreparedFrame(std::shared_ptr<Device> d,std::shared_ptr<Sw
   else {auto wr=a.WaitForFences(d->handle,1,&s.acquired,VK_TRUE,UINT64_MAX);if(wr!=VK_SUCCESS)return wr;}
  }
  auto counters=[&](){double ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();++s.costFrames;s.qualityWaitTotal+=qualityWaitMs;s.previousWaitTotal+=previousWaitMs;s.presentTotal+=presentMs;s.callTotal+=ms;double blocking=s.asyncFrame?s.lastSourceCallMs.load():ms;reportMetrics(s,quality.reasons,blocking);if(s.sources%60==0){LOG("COUNTERS sources=%llu generated_present_requests=%llu spare_skips=%llu cut_skips=%llu hold_skips=%llu flow_skips=%llu last_quality_flags=%u last_blocking_ms=%.3f (NOT displayed FPS)",(unsigned long long)s.sources,(unsigned long long)s.generated,(unsigned long long)s.skipped,(unsigned long long)s.cutSkipped,(unsigned long long)s.holdSkipped,(unsigned long long)s.flowSkipped,quality.reasons,blocking);}};
- if(!pair){s.lastRealDesired=0;VkPresentInfoKHR real=*info;real.waitSemaphoreCount=0;real.pWaitSemaphores=nullptr;auto presentStart=std::chrono::steady_clock::now();auto result=timedPresent(*d,s,queue,&real,false);presentMs=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-presentStart).count();counters();return result;}
+ if(!pair){s.lastRealDesired=budgetRejected?realTime:0;VkPresentInfoKHR real=*info;real.waitSemaphoreCount=0;real.pWaitSemaphores=nullptr;auto presentStart=std::chrono::steady_clock::now();auto result=timedPresent(*d,s,queue,&real,false,s.lastRealDesired);presentMs=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-presentStart).count();counters();return result;}
  reset=a.ResetCommandPool(d->handle,s.pool,0);if(reset!=VK_SUCCESS)return reset;br=a.BeginCommandBuffer(s.cmd,&bi);if(br!=VK_SUCCESS)return br;
  if(s.queries)a.CmdWriteTimestamp(s.cmd,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,s.queries,2);
  auto output=[&](VkImage from,uint32_t index,VkImageLayout oldLayout){s.engine->barrier(s.cmd,s.images[index],oldLayout,VK_IMAGE_LAYOUT_GENERAL,0,VK_ACCESS_TRANSFER_WRITE_BIT);s.engine->blit(s.cmd,from,s.extent,s.images[index],s.extent);s.engine->barrier(s.cmd,s.images[index],VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,VK_ACCESS_TRANSFER_WRITE_BIT,0);};
@@ -265,13 +281,15 @@ static VkResult finishPreparedFrame(std::shared_ptr<Device> d,std::shared_ptr<Sw
  VkSubmitInfo sub{VK_STRUCTURE_TYPE_SUBMIT_INFO};sub.commandBufferCount=1;sub.pCommandBuffers=&s.cmd;sub.signalSemaphoreCount=2;sub.pSignalSemaphores=signals;
  reset=a.ResetFences(d->handle,1,&s.workDone);if(reset!=VK_SUCCESS)return reset;
  sr=layerSubmit(*d,queue,1,&sub,s.workDone);if(sr!=VK_SUCCESS)return sr;s.workPending=true;s.outputTimed=s.queries!=VK_NULL_HANDLE;
- uint64_t generatedTime=0,realTime=0;char pacing[PROP_VALUE_MAX]{};__system_property_get("debug.thorfg.pacing",pacing);
+ // The preflight may reject before acquiring a spare. If it accepts, later
+ // time cannot invalidate its lookahead bound. Choose the final deadlines
+ // after the output submission: counting acquisition/recording time as driver
+ // lead can make both queued frames target the same physical display slot.
  if(s.timing&&pacing[0]!='0'){
-  uint64_t half=std::max(s.refreshNs,s.cadence.interval()/2),now=monotonicNs();
-  generatedTime=s.lastRealDesired?s.lastRealDesired+half:now+s.refreshNs;
-  if(generatedTime<now+s.refreshNs/3)generatedTime=now+s.refreshNs;
-  realTime=generatedTime+half;s.lastRealDesired=realTime;
+  auto plan=planPairPresentation(monotonicNs(),s.cadence.interval()/2,s.refreshNs,s.lastRealDesired,false);
+  generatedTime=plan.generated;realTime=plan.real;
  }
+ s.lastRealDesired=realTime;
  VkResult generatedResult=VK_SUCCESS;
  auto presentStart=std::chrono::steady_clock::now();
  if(pair){VkPresentInfoKHR gen{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};gen.waitSemaphoreCount=1;gen.pWaitSemaphores=&s.ready[extra];gen.swapchainCount=1;gen.pSwapchains=&s.handle;gen.pImageIndices=&extra;generatedResult=timedPresent(*d,s,queue,&gen,true,generatedTime);if(generatedResult==VK_SUCCESS||generatedResult==VK_SUBOPTIMAL_KHR)++s.generated;}
@@ -320,6 +338,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL present(VkQueue queue,const VkPresentInfoK
  pollPresentation(*d,s);
  char cadencePolicy[PROP_VALUE_MAX]{};__system_property_get("debug.thorfg.cadence",cadencePolicy);
  s.producerCadence.record(arrivedNs,!strcmp(cadencePolicy,"legacy"));s.cadence=s.producerCadence;
+ char schedulePolicy[PROP_VALUE_MAX]{};__system_property_get("debug.thorfg.schedule",schedulePolicy);s.scheduleBounded=strcmp(schedulePolicy,"legacy")!=0;
  if(info->pNext){if(s.engine)s.engine->hasHistory=false;s.lastRealDesired=0;auto result=layerPresent(*d,queue,info);reportMetrics(s,0,0);return result;}
  if(!fgEnabled()){
   if(s.engine)s.engine->hasHistory=false;s.lastRealDesired=0;

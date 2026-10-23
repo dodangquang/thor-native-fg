@@ -4,6 +4,60 @@ HIỆN TẠI: APK0.7 và bootstrap0.3 đã cài. Engine vẫn thử nghiệm; m�
 DLSS-like đầy đủ chưa đạt. Các mục0.1–0.6 phía dưới là lịch sử, không phải
 trạng thái máy hiện tại. Xem phần0.7 và PRODUCT-REQUIREMENTS.txt.
 
+ỨNG VIÊN0.8 — GIỚI HẠN LỊCH CHỜ, CHƯA THAY BẢN0.7 ĐANG DÙNG
+- Mục đích: ngăn lastRealDesired cộng dồn nhiều chu kỳ khi ước lượng cadence
+  chậm hơn nguồn mới. Kiểm tra trước khi lấy image phụ; nếu lịch đã quá xa,
+  bỏ frame nội suy và chỉ tiến một slot cho frame thật, giữ thứ tự deadline.
+  Timestamp cuối của cặp được chốt sau output-submit để giữ đủ lead cho driver.
+  Không đổi flow/SR shader. Đây chưa phải presenter căn theo vblank thực.
+-29kiểm thử timing/planner qua trên Thor; đối chứng dùng chính công thức cũ
+  có3lỗi trong29kiểm tra. Bao gồm backlog, cadence đổi tốc độ, jitter và nguồn
+  đều60/30/24. research/schedule-{before,after}-selftest.txt.
+- Ngân sách2chu kỳ đầu tiên không đạt: nguồn24FPS jitter±6ms vẫn24, nhưng
+  hiển thị48,15→35,55FPS và p95gap25,245→58,901ms, dù age52→39ms. Giữ log
+  bounded2 làm bằng chứng lỗi, không chọn làm mặc định. Nới thành3chu kỳ giữ
+  khoảng48,16FPS và p95gap25,243ms ở cùng workload; age khoảng51ms. Không
+  gọi việc giảm FPS/giãn gap thành cải thiện độ mượt.
+- Phát hiện chốt timestamp sớm trước acquisition/record/submit làm cảnh60FPS
+  chỉ còn104,18FPS hiển thị. Chốt cuối sau submit khôi phục khoảng115,83 từ
+  59,98nguồn, p95gap8,416ms, không có lỗi validation trong log. Những log trước
+  post-submit là lượt prototype trước sửa này, không thay bằng chứng bản cuối.
+- Fixture riêng tăng24→30FPS sau3s, giữ cảnh liên tục và tắt color-cut tự động
+  để không che mất backlog. Bỏ8s đầu: lịch cũ/new cùng59,94FPS hiển thị, age
+  frame thật55,858→42,237ms, p95age59,481→46,163ms. Nhưng p95gap16,830→25,233ms;
+  vẫn có trade-off về pacing, chưa phải cải thiện tổng thể. Không phải input
+  latency. research/schedule-post-submit-step24-30-{legacy,bounded3}.txt.
+- Android cắt log format dài ở1023byte; đã tách THOR_FRAME_AGE khỏi dòng
+  THOR_METRICS dùng cho HUD, cùng pid/swap/uptime để ghép chính xác. Bộ đo
+  yêu cầu end-marker budget_skips, tránh thống kê từ log bị cắt.20kiểm thử
+  giao thức HUD qua, ô người dùng vẫn một dòng hai số. research/schedule-summary.json.
+- Runtime cuốiAE77... được nạp tạm qua cấu hình root vào DroidDeck PID5368;
+  controller vẫn0.7. Runtime bất biến riêng giữ đường dẫn qua mọi cập nhật.
+  Trong cùng menu,19cửa sổ/lượt: lịch cũ53,82→100,72FPS, age40,195ms;
+  bounded53,65→100,56, age40,194ms; SR-only57,44→57,42, age15,288ms. Không
+  chứng minh được lợi ích mới trong menu. Tất cả vẫn SR1280x720→1080p.
+- Hai đoạn intro nối tiếp không phải cùng cảnh lặp lại: cũ24,77→45,84FPS,
+  age57,340ms; bounded23,97→46,34, age57,397ms. Không suy ra quan hệ nhân quả
+  từ hai đoạn khác nhau. Quality-fence wait trung vị18,860/21,007ms trong khi
+  GPU input FG6,270/6,547ms: còn phần chờ GPU trước/ngoài công việc FG được đo.
+  Không chứng minh giảm latency game, chất lượng cut nhanh hay traversal/combat.
+  research/droid-schedule-case-summary.json, schedule-game-stage-costs.txt.
+- QA cuối đúng nativeAE77... PID13114:6/6SR readback và6/6compute-state,
+  recreate và hot OFF/ON khôi phục≥3cửa sổ generated/display-valid; không có
+  validation/threading error trong log. research/schedule-final-qa-lifecycle.txt.
+- Đã khôi phục provider77EB... của0.7, cấu hình/save từ backup mới của phiên
+  này; SHA/UID/GID/mode của hai save và SHA session.xml khớp. Đã gỡ hai APK QA,
+  còn16rule, auto1/SR1, GPUdebug0, xóa override và về Home. Runtime thử bất biến
+  vẫn giữ để tránh xóa đường dẫn của tiến trình có thể đã bind. Xem
+  research/schedule-save-verification.json và schedule-final-device-audit.txt.
+- APK ứng viên0.8 SHA256:
+ 8F1005425C6F5762A97E1FAD57DEF2BDAF0BA576BBC8E8224128AC1249241F4B
+  Native ứng viên SHA256:
+ AE77CE4E752B5F43A5E05B6F86B54D01CD5DEF122F09CB7BB9FC5B44A401A623
+  Chưa cập nhật controller/default runtime đang dùng sang0.8. Tiếp tục xử lý
+  pha/vblank thực, chi phí GPU và kiểm chứng chất lượng, giữ toàn bộ yêu cầu
+  DLSS-like trong PRODUCT-REQUIREMENTS.txt.
+
 CẬP NHẬT0.7 — CADENCE, FRAME AGE VÀ TIMESTAMP CỦA GAME
 - Tái hiện lỗi: median phía trên của16khoảng nguồn và việc bỏ các khoảng≤1ms
   nhận nhầm các lượt tới nhanh/chậm xen kẽ. Nguồn90/120FPS có thể bị bật2x,

@@ -44,5 +44,34 @@ int main(){
  PresentationWindow invalidAge;for(uint32_t i=0;i<91;i++){uint64_t presented=base+i*period;invalidAge.record(presented,i+1,false,i%2?0:presented+1000000);}
  auto unknown=invalidAge.stats(base+90*period+1000000);
  check(unknown.valid&&unknown.realAgeSamples==0&&unknown.generatedAgeSamples==0,"missing or reversed source clocks never manufacture a latency measurement");
+ const uint64_t refresh=8333333;
+ auto normal=planPairPresentation(base,refresh,refresh,base);
+ check(normal.generate&&normal.generated==base+refresh&&normal.real==base+2*refresh,"normal cadence retains a spaced generated/real pair");
+ auto queued=planPairPresentation(base,refresh,refresh,base+3*refresh);
+ check(!queued.generate,"an intermediate frame is rejected instead of extending an already late queue");
+ uint64_t lastReal=base+6*refresh;
+ for(int i=0;i<10;i++){auto plan=planPairPresentation(base+i*2*refresh,refresh,refresh,lastReal);lastReal=plan.real;}
+ check(lastReal<=base+18*refresh+4*refresh,"present scheduling catches up after a temporary queue backlog");
+ bool boundedAge=true,ordered=true;lastReal=0;time=base;int generatedPairs=0;
+ for(int i=0;i<120;i++){
+  auto plan=planPairPresentation(time,21000000,refresh,lastReal);
+  boundedAge&=!plan.generate||plan.real<=time+3*refresh+21000000;
+  ordered&=!lastReal||plan.real>=lastReal+refresh;
+  generatedPairs+=plan.generate;lastReal=plan.real;time+=i%2?48000000:32000000;
+ }
+ check(boundedAge&&generatedPairs>=60,"irregular low-FPS arrivals cannot accumulate extra future presentation cycles");
+ check(ordered,"catch-up keeps original frame deadlines in submission order");
+ bool steady=true;
+ for(uint64_t half:{refresh,2*refresh,uint64_t(21000000)}){lastReal=0;for(int i=0;i<120;i++){
+  uint64_t ready=base+uint64_t(i)*2*half;auto plan=planPairPresentation(ready,half,refresh,lastReal);
+  steady&=plan.generate&&plan.generated>=ready&&plan.real-plan.generated==half;lastReal=plan.real;
+ }}
+ check(steady,"steady60/30/24FPS retain every generated slot without phase drift");
+ bool burstSlots=true;
+ for(uint64_t half:{uint64_t(9090909),uint64_t(20833333)}){lastReal=0;for(int i=0;i<120;i++){
+  uint64_t ready=base+uint64_t(i)*2*half+(i%2?0:12000000);auto plan=planPairPresentation(ready,half,refresh,lastReal);
+  burstSlots&=plan.generate;lastReal=plan.real;
+ }}
+ check(burstSlots,"55/24FPS with alternating6ms jitter retain all feasible intermediate slots");
  printf("RESULT checks=%d failures=%d\n",checks,failures);return failures?1:0;
 }

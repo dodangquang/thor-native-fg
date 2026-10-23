@@ -1,5 +1,10 @@
 THOR NATIVE FG 0.7 — BẢN THỬ NGHIỆM ĐỘC LẬP
 
+Máy hiện giữ bản0.7. Mã nguồn và ThorNativeFG-debug.apk đang là ứng viên0.8
+để nghiên cứu pacing; chưa được chọn làm bản đang dùng vì lợi ích trong game
+chưa rõ. ThorNativeFG-v0.7-installed.apk là bản sao đúng APK đã cài;
+ThorNativeFG-v0.8-candidate.apk là bản thử tiếp theo. Xem phần ứng viên trong STATUS-VI.txt.
+
 Bản0.7 sửa nhận diện tốc độ nguồn khi frame tới không đều: nguồn90/120FPS
 không còn bị nhận nhầm để bật nội suy2x. Layer cũng giữ timestamp riêng của
 ứng dụng, tránh lấy mất bản ghi mà game cần. Không cần bật thêm nút.

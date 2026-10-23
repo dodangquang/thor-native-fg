@@ -60,3 +60,21 @@ struct SourceCadence {
  bool ready()const{return last>=first&&last-first>=250000000ull&&gaps.size()>=8;}
  bool canDouble(uint64_t refresh)const{return ready()&&double(interval())>=double(refresh)*1.9;}
 };
+
+struct PairSchedule {bool generate;uint64_t generated,real;};
+inline PairSchedule planPairPresentation(uint64_t now,uint64_t half,uint64_t refresh,uint64_t lastReal,bool bounded=true){
+ half=std::max(half,refresh);
+ uint64_t generated=lastReal?lastReal+half:now+refresh;
+ if(generated<now+refresh/3)generated=now+refresh;
+ // A cadence estimate can remain slightly slower than current arrivals.
+ // Advancing its phase without a bound accumulates future cycles forever.
+ // Spend at most three refresh cycles of lookahead after the input is ready;
+ // two cycles rejected alternating24FPS arrivals with6ms jitter and created
+ // a59ms display gap. The extra cycle absorbs that burst without unbounded
+ // phase accumulation.
+ // when that slot is full, preserve the real frame and consume only one slot
+ // to catch up. Retain submission order rather than moving queued deadlines
+ // backwards. A diagnostic legacy policy permits the same-binary control.
+ if(bounded&&generated>now+3*refresh)return {false,0,std::max(now+refresh/3,lastReal+refresh)};
+ return {true,generated,generated+half};
+}
