@@ -44,6 +44,6 @@ def adapt(source,name,stable=False,full=False):
     return source
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('source',type=pathlib.Path);p.add_argument('output',type=pathlib.Path);p.add_argument('--stable',action='store_true');p.add_argument('--full',action='store_true');a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('source',type=pathlib.Path);p.add_argument('output',type=pathlib.Path);p.add_argument('--stable',action='store_true');p.add_argument('--full',action='store_true');p.add_argument('--prefix',default='');a=p.parse_args()
     for name in ('convert','upscale'):
-        (a.output/f'{name}.comp').write_text(adapt((a.source/f'sgsr2_{name}.fs').read_text(),name,a.stable,a.full),encoding='utf-8')
+        (a.output/f'{a.prefix}{name}.comp').write_text(adapt((a.source/f'sgsr2_{name}.fs').read_text(),name,a.stable,a.full),encoding='utf-8')

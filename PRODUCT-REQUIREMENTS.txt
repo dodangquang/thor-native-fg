@@ -39,6 +39,16 @@ The requested equivalent function/quality remains the target; names and claims
 must accurately distinguish neural/temporal/spatial SR and measured results.
 
 Current verified baseline and gaps:
+- Post0.12 source now has a reusable cooperative temporal backend with per-slot
+  UBO/descriptors/output, actual fence retirement and cancel/commit history.
+ 28host sequence checks,32GPU lifecycle checks and27legacy FG/SR checks pass.
+  Featureless32-frame output is bit-exact to the SGSR2 prototype; a separate
+  timeline-enabled test gate proves real pending work cannot be overwritten.
+  A1.875x small fixture also matches the prototype exactly. The internal static
+  archive is not an emulator provider, controller policy, present bridge or
+  installed GSR2 activation. Real depth/motion/jitter extraction, lifecycle/
+  resize across actual renderers, off/telemetry wiring and every original product
+  requirement remain outstanding. Installed controller remains0.12/automaticOFF.
 - Version0.12 is installed with an optional final source-range clamp on neural
   RGB (sa2; raw neural sa1 retained as a control). Independent author-owned
   paired renders cover34development+16additional AA/pose cases. All200candidate

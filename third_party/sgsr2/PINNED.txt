@@ -1,0 +1,6 @@
+Original fragment shaders/license from SnapdragonGameStudios/snapdragon-gsr,
+commit d926f074bcb9d714e179f1ce0fcb9ee2eeb5074e, sgsr/v2/include/glsl_2_pass_fs.
+Upstream URL: https://github.com/SnapdragonGameStudios/snapdragon-gsr
+BSD3license preserved in LICENSE. Originals are unchanged; Vulkan compute/UBO,
+highp, bounded-fetch/dispatch and stable radial-factor adapters are generated
+by scripts/prepare-temporal-shaders.py. This is a modified Thor implementation.

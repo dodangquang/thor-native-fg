@@ -91,3 +91,16 @@ Second executed checkpoint (see STATUS.txt):
   The stable candidate beats both controls and bilinear in the3Dscene at256x144
   output, and beats bilinear at512x288output. It still loses to bilinear in the
   moving2Dscene. No universal quality winner is claimed; no game selector added.
+
+Reusable renderer backend is now native/temporal.cpp + temporal.hpp, with the
+explicit input/queue/fence contract in native/TEMPORAL-INTEGRATION.txt. The shader
+adapter moved to scripts/prepare-temporal-shaders.py; production pinned originals
+are in third_party/sgsr2. Existing experiment originals remain frozen.
+-ProductionEngine runs the new backend instead of the prototype. -LifecycleGate
+adds a timeline semaphore ONLY to the test device to hold real GPU submissions
+pending for slot/fence tests. Production backend requires no timeline extension.
+Featureless and gated runs are recorded separately; do not merge their scopes.
+New native backend32-frame outputs match the prototype exactly, including1.875x.
+--output-width/--output-height select other fixture dimensions (3Dpair must keep
+the same aspect). This remains a source/static renderer integration, not an
+installed emulator provider or an automatic GSR2 game-activation feature.

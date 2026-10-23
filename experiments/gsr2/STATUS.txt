@@ -115,3 +115,45 @@ Second executed checkpoint 2026-10-23 ~13:00+07:00:
 - QA package removed Success. Fresh reads: installed controller0.12-experimental,
   manual0/auto0. No game launch, save/preference write, reboot or root change in
   this turn. No runtime test process remains active. Goal remains ACTIVE.
+
+Cooperative backend checkpoint 2026-10-23 13:10+07:00:
+- native/temporal.hpp/cpp and temporal_sequence.hpp implement reusable GPU-view
+  inputs, explicit metadata, per-slot UBO/descriptors/output, cancel-before-submit,
+  submit acknowledgement and actual fence retirement. Initial/scene/gap resets
+  are preserved; uncertain submission faults the context. No per-frame queue idle.
+  See native/TEMPORAL-INTEGRATION.txt for exact ownership/queue/format limits.
+- Shader adapter moved to scripts/prepare-temporal-shaders.py. Pinned production
+  sources/license are in third_party/sgsr2. Generated shader names are prefixed
+  to avoid overwriting existing GSR1 upscaler. Experimental controls remain.
+-28host sequence checks PASS,27existing FG/GSR1 GPU checks PASS with the new
+  core GetFenceStatus Api member; existing layer recompiles successfully.
+- Featureless device PID8168/native
+  9258fd6089b4686f6ed62bebd9972e6e20a38b50c73e8bf7e72985b38f894f62:
+ 32new-engine frames/4,718,592RGBAcomponents match frozen prototype bits exactly,
+  with Khronos synchronization validation and zero captured VUID/sync/fatal.
+- Separate timeline-feature-enabled TEST gate PID8699/native
+  e074189c407e35f3e9d51f6804770fd1cd6ef4b4ffeef208bc4f019319811f38:
+ 32GPU lifecycle checks PASS. Actual first fence is NOT_READY while3jobs are
+  held; early retire/release/fourth record fail safely. Four queued/recycled
+  images with distinct sources/jitter match serial references exactly. Initial
+  unsubmitted command can be discarded without changing history. These4images
+  are66x42->132x84; not a sustained renderer or game timing test. Production
+  engine uses no timeline functions; do not label the gated DEVICE featureless.
+ 32scene outputs in this profile also match prototype bits exactly.
+- Engine now accepts non2x upscales within1920x1080output. Small1.875x fixture
+  128x72->240x135/46e1d00df6771483a0f8578761f11244812b3510c604ebfc05c10ae2a171cb69:
+  PID9554/new native4dfcb48564931a483088c317d7774946cecd1dd75defe4d9705bf86cf66ca612
+  exactly matches32separately executed prototype images PID9718,4,147,200values.
+  PSNR31.8979vs bilinear30.4488 in the authored3Dscene. This verifies the ratio
+  of1024x576->1080p, NOT full-resolution performance or actual DroidDeck inputs.
+- Internal arm64-v8a Android29/C++17NDK27.3static archive built:
+  build/temporal-sdk/libthor_temporal.a SHA
+  93846770a33c0a0d51dd1116fecebf65d9b3f0dbc0ad89866511c025a31fedb2,
+  matching headers/source provenance/legal files. Not a stable external binary
+  plugin ABI and not installed into games. No present-layer bridge, UID/user-off
+  policy or temporal-present telemetry exists for it yet. No emulator provides
+  the required images/matrices today. Do not promote it as completed software.
+- QA app uninstalled Success; exact temporary CLI files removed. Fresh phone
+  reads controller0.12-experimental, manual0/auto0. APK F052...F842 unchanged.
+  No game launch/save/preference write/root change/reboot in this turn. Old
+  backups remain stale; always take new backup before any further game test.

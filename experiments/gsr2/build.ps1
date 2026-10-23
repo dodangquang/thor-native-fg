@@ -1,4 +1,4 @@
-param([string]$DataDirectory='E:/ThorNative/research/gsr2-plane',[switch]$UseRelaxedPrecision,[switch]$FragmentMath,[switch]$StableKernel,[switch]$FullKernel)
+param([string]$DataDirectory='E:/ThorNative/research/gsr2-plane',[switch]$UseRelaxedPrecision,[switch]$FragmentMath,[switch]$StableKernel,[switch]$FullKernel,[switch]$ProductionEngine,[switch]$LifecycleGate)
 $ErrorActionPreference='Stop'
 $root=Split-Path (Split-Path $PSScriptRoot)
 $sdk='E:/DevTools/Android/Sdk'
@@ -12,6 +12,13 @@ $fixtureHash=(Get-FileHash -LiteralPath $fixture -Algorithm SHA256).Hash.ToLower
 New-Item -ItemType Directory -Force -Path "$lab/lib/arm64-v8a","$lab/assets/legal/Anime4K","$lab/assets/legal/SGSR1","$lab/classes","$lab/dex" | Out-Null
 $deviceSource=Get-Content -LiteralPath "$root/experiments/spatial-quality/lab.cpp" -Raw
 $deviceSource=$deviceSource.Substring($deviceSource.IndexOf('struct Device {'),$deviceSource.IndexOf('struct Fixture {')-$deviceSource.IndexOf('struct Device {'))
+if($LifecycleGate){
+ if(-not $ProductionEngine){throw 'LifecycleGate requires ProductionEngine'}
+ $gateFeature=@'
+VkPhysicalDeviceTimelineSemaphoreFeatures timeline{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES};VkPhysicalDeviceFeatures2 available{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};available.pNext=&timeline;vkGetPhysicalDeviceFeatures2(gpu,&available);if(!timeline.timelineSemaphore)throw std::runtime_error("Timeline test gate unsupported");timeline.timelineSemaphore=VK_TRUE;const char* timelineExtension=VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME;di.pNext=&timeline;di.enabledExtensionCount=1;di.ppEnabledExtensionNames=&timelineExtension;
+'@
+ $deviceSource=$deviceSource.Replace('requireVk(vkCreateDevice(gpu,',$gateFeature+"`n  requireVk(vkCreateDevice(gpu,")
+}
 [IO.File]::WriteAllText("$lab/lab_device.hpp",$deviceSource,[Text.UTF8Encoding]::new($false))
 $shaderBin="$sdk/ndk/27.3.13750724/shader-tools/windows-x86_64"
 $header="#pragma once`n#include <cstdint>`n"
@@ -19,7 +26,7 @@ if($FragmentMath){
  if($UseRelaxedPrecision){throw 'Fragment-math experiment requires full precision'}
  $adapterFlags=@();if($StableKernel){$adapterFlags+='--stable'}
  if($FullKernel){$adapterFlags+='--full'}
- & 'C:/Users/dodan/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe' "$PSScriptRoot/adapt_fragment.py" "$PSScriptRoot/upstream" $lab @adapterFlags;Check 'Fragment math adapter'
+ & 'C:/Users/dodan/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe' "$root/scripts/prepare-temporal-shaders.py" "$PSScriptRoot/upstream" $lab @adapterFlags;Check 'Fragment math adapter'
 }
 elseif($StableKernel){throw 'StableKernel requires FragmentMath'}
 if($FullKernel -and -not $FragmentMath){throw 'FullKernel requires FragmentMath'}
@@ -46,10 +53,15 @@ foreach($name in @('convert','upscale')){
  $header+='static const uint32_t '+$name+'_spv[]={' + ($words -join ',') + "};`n"
 }
 [IO.File]::WriteAllText("$lab/gsr2_shaders.hpp",$header,[Text.UTF8Encoding]::new($false))
-& $cc -std=c++17 -O2 -fPIC -shared -static-libstdc++ -I "$root/native" -I "$root/build/generated" -I "$lab" "$root/native/engine.cpp" "$PSScriptRoot/lab.cpp" -lvulkan -llog '-Wl,-z,max-page-size=16384' -o "$lab/lib/arm64-v8a/libthor_gsr2_lab.so";Check 'GSR2 lab JNI'
+& "$root/scripts/prepare-temporal-shaders.ps1" -Destination "$root/build/generated"
+$engineFlags=@();if($ProductionEngine){$engineFlags+='-DTHOR_GSR2_PRODUCTION'}
+if($LifecycleGate){$engineFlags+='-DTHOR_GSR2_LIFECYCLE'}
+& $cc -std=c++17 -O2 -fPIC -shared -static-libstdc++ @engineFlags -I "$root/native" -I "$root/tests" -I "$root/build/generated" -I "$lab" "$root/native/engine.cpp" "$root/native/temporal.cpp" "$PSScriptRoot/lab.cpp" -lvulkan -llog '-Wl,-z,max-page-size=16384' -o "$lab/lib/arm64-v8a/libthor_gsr2_lab.so";Check 'GSR2 lab JNI'
 $nativeHash=(Get-FileHash -LiteralPath "$lab/lib/arm64-v8a/libthor_gsr2_lab.so" -Algorithm SHA256).Hash.ToLowerInvariant()
-$sourceHashes=@{};foreach($path in @('native/engine.cpp','native/engine.hpp','build/generated/shaders.hpp','build/gsr2/gsr2_shaders.hpp','build/gsr2/lab_device.hpp','experiments/gsr2/lab.cpp','experiments/gsr2/build.ps1','experiments/gsr2/prepare.py','experiments/gsr2/scene3d.py','experiments/gsr2/test_fixture.py','experiments/gsr2/adapt_fragment.py','experiments/gsr2/upstream/sgsr2_convert.comp','experiments/gsr2/upstream/sgsr2_upscale.comp','experiments/gsr2/upstream/sgsr2_convert.fs','experiments/gsr2/upstream/sgsr2_upscale.fs')){$sourceHashes[$path]=(Get-FileHash -LiteralPath "$root/$path" -Algorithm SHA256).Hash.ToLowerInvariant()}
-$provenance=@{fixtures_sha256=$fixtureHash;native_sha256=$nativeHash;source_hashes=$sourceHashes;upstream_commit='d926f074bcb9d714e179f1ce0fcb9ee2eeb5074e';relaxed_precision=[bool]$UseRelaxedPrecision;fragment_math_as_compute=[bool]$FragmentMath;stable_kernel=[bool]$StableKernel;full_kernel=[bool]$FullKernel}
+$sourceHashes=@{};foreach($path in @('native/engine.cpp','native/engine.hpp','build/generated/shaders.hpp','build/gsr2/gsr2_shaders.hpp','build/gsr2/lab_device.hpp','experiments/gsr2/lab.cpp','experiments/gsr2/build.ps1','experiments/gsr2/prepare.py','experiments/gsr2/scene3d.py','experiments/gsr2/test_fixture.py','scripts/prepare-temporal-shaders.py','experiments/gsr2/upstream/sgsr2_convert.comp','experiments/gsr2/upstream/sgsr2_upscale.comp','experiments/gsr2/upstream/sgsr2_convert.fs','experiments/gsr2/upstream/sgsr2_upscale.fs')){$sourceHashes[$path]=(Get-FileHash -LiteralPath "$root/$path" -Algorithm SHA256).Hash.ToLowerInvariant()}
+foreach($path in @('native/temporal.cpp','native/temporal.hpp','native/temporal_sequence.hpp','native/vkapi.hpp','scripts/prepare-temporal-shaders.ps1','build/generated/temporal_shaders.hpp','third_party/sgsr2/sgsr2_convert.fs','third_party/sgsr2/sgsr2_upscale.fs')){$sourceHashes[$path]=(Get-FileHash -LiteralPath "$root/$path" -Algorithm SHA256).Hash.ToLowerInvariant()}
+$sourceHashes['tests/temporal_gpu_test.hpp']=(Get-FileHash -LiteralPath "$root/tests/temporal_gpu_test.hpp" -Algorithm SHA256).Hash.ToLowerInvariant()
+$provenance=@{fixtures_sha256=$fixtureHash;native_sha256=$nativeHash;source_hashes=$sourceHashes;upstream_commit='d926f074bcb9d714e179f1ce0fcb9ee2eeb5074e';relaxed_precision=[bool]$UseRelaxedPrecision;fragment_math_as_compute=[bool]$FragmentMath;stable_kernel=[bool]$StableKernel;full_kernel=[bool]$FullKernel;production_engine=[bool]$ProductionEngine;lifecycle_test_timeline_feature=[bool]$LifecycleGate}
 [IO.File]::WriteAllText("$lab/assets/provenance.json",($provenance | ConvertTo-Json -Depth 4),[Text.UTF8Encoding]::new($false))
 Copy-Item -LiteralPath "$root/research/validation/android-binaries-1.4.363.0/arm64-v8a/libVkLayer_khronos_validation.so" -Destination "$lab/lib/arm64-v8a/libVkLayer_khronos_validation.so" -Force
 Copy-Item -LiteralPath "$sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" -Destination "$lab/lib/arm64-v8a/libc++_shared.so" -Force

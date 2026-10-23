@@ -1,0 +1,112 @@
+Thor cooperative temporal renderer backend — experimental, not game activation
+
+Build: ./scripts/build-temporal-sdk.ps1
+Internal archive: build/temporal-sdk/libthor_temporal.a (arm64-v8a, Android29,
+C++17, NDK27.3.13750724). Matching headers, provenance and legal sources are in
+that folder. This is a source/static integration interface, not a stable binary
+plugin ABI. No installed emulator calls it yet. Controller/runtime remains0.12.
+
+Use the renderer's real VkDevice dispatch and memory properties. In a custom
+loader/Turnip process do not call Android's unrelated global loader on foreign
+device handles. Api::load accepts the appropriate vkGetDeviceProcAddr. All
+contexts and their input objects belong to that same device. The queue must
+support compute and all record/submission order must remain on the declared
+serial queue. Caller owns host synchronization, including other queue users.
+TemporalEngine is not host-thread-safe; serialize its methods.
+
+Input contract (TemporalFrame in temporal.hpp):
+- GPU image views with exact extent, actual format and current readable layout.
+  They must have SAMPLED usage. Metadata checks cannot prove a view contains
+  depth/motion or inspect its pixel semantics. Provider must establish these.
+- Color is LINEAR LDR scene color before HUD; preExposure must be1. Gamma/sRGB
+  views and HDR/exposure transitions are not this initial path. Source images
+  are sampled without captures or CPU pixel transfers. SDK does not own them.
+- Depth is normal Vulkan0..1, near0/far1, from the same jittered geometry/color.
+  Reverse-Z is not silently inferred. Converting it also requires matching the
+  camera transform's coordinate basis; changing only a depth flag is insufficient.
+- Velocity uses UV-down clip-space current-minus-previous unjittered projected
+  positions. For moving objects it includes camera AND object motion. Encode
+  xy as motion*.2495 +32767/65535. Raw RG0is the STATIC-object camera-fallback
+  sentinel; encoded-zero(.49999,.49999) instead suppresses camera reprojection.
+- clipToPrevClip is previous_unjittered_viewProjection * inverse(current),
+  column-major, in the same clip/depth basis. Jitter is the actual projection
+  offset in render pixels, within[-.5,.5]; shifted final images do not create
+  the extra rendered samples required for temporal reconstruction.
+- Monotonic64bit frame IDs identify REAL rendered frames, not inserted FG
+  presentations. Scene ID changes, explicit reset, initial history and ID gaps
+  force reset. Provider must explicitly reset on pause/seek/camera cut when ID
+  continuity alone cannot detect it. Missing/invalid inputs return without GPU
+  commands and must use the game's normal output/spatial fallback.
+
+Lifecycle:
+1. Keep the supplied Api and VkDevice alive. init(api,memory,queue,in,out,slots)
+   accepts1..8slots, minimum16pixel input and upscaled output<=1920x1080. Ratio
+   need not be2x;2x and1.875x have GPU checks. Other accepted dimensions/ratios
+   still need application-specific validation. R8color/R32depth/RGBA32velocity
+   are GPU-tested; other accepted metadata formats need device support checks.
+2. Transition/resolve application inputs as needed and include their producer
+   dependencies in the queue submission. SDK samples the declared layouts and
+   does not transition the application's images. End any render pass first.
+3. record(cmd,frame,out) returns Ready plus a ticket and per-slot RGBA16F output.
+   Ready leaves compute pipeline/descriptor binding state changed; restore ALL
+   application compute bindings before its next dispatch. SDK does not submit.
+4. Consume output before HUD composition. RGB is scene output; alpha0follows
+   the upstream fragment algorithm, not source transparency. Do not treat it
+   as a preserved-alpha overlay. Output is GENERAL, shader/transfer-readable.
+   Query format support or use a sampling composition pass for final conversion.
+5. Submit the containing commands on the declared queue with a real fence.
+   Immediately call submitted(ticket,queue,fence,result). The fence must cover
+   ALL consumers of that output and input resources, including final composition;
+   a fence covering only an earlier partial submission is insufficient.
+6. retire(ticket) checks vkGetFenceStatus. Busy means keep all input objects,
+   command buffers, fence, descriptors and output alive. Do not reset/reassign
+   the fence until retirement. On Ready the slot/output may be overwritten.
+   SDK cannot independently verify which submission a caller's fence belongs to.
+7. If a recorded command was never submitted, first discard/reset it, then call
+   abort(ticket). This does not advance GPU history or source numbering. Never
+   abort commands already sent to GPU. A failed/uncertain acknowledgement makes
+   the context Faulted; discard future use and tear down after GPU completion.
+8. release() is nonblocking and refuses pending work. Explicitly retire/abort
+   first. Destructor defensively waits idle for outstanding/uncertain GPU work;
+   this is cleanup, not a per-frame scheduling operation. For resize, release
+   after retirement and init a new extent/context. Do not reuse old history.
+
+Renderer integration sketch:
+ Api downstream; downstream.load(device, actualLoaderGetDeviceProcAddr);
+ TemporalEngine context;
+ context.init(downstream, deviceMemory, serialComputeQueue, renderSize, displaySize,3);
+ // For each real frame, fill actual views and complete metadata above:
+ TemporalOutput output;
+ if(context.record(cmd, frame, output)==TemporalStatus::Ready){
+   // Sample/copy output.image; compose HUD; restore application state.
+   VkResult result = submitContainingCommandsAndConsumers(output.ticket);
+   context.submitted(output.ticket, serialComputeQueue, completionFence, result);
+   // Later, only after the actual fence is signaled:
+   context.retire(output.ticket);
+ }
+
+No present-layer bridge, package/UID policy, controller-off wiring or truthful
+temporal-present telemetry is installed by this archive. These are REQUIRED
+before any real-game profile can advertise GSR2 ON. Never infer depth/motion
+from an arbitrary image format or pretend a final compositor supplies them.
+Future layer integration must use downstream dispatch, obey existing queue locks,
+restore application state, and report SR only after actual submitted output is
+presented. Original FG/GLES/emulator/latency/quality requirements remain active.
+
+Evidence:
+-28host sequence checks: cancellation, generation, gaps, scene reset, capacity,
+  stale acknowledgements and uncertain submission. No GPU completion is inferred
+  from these host checks.
+- Featureless Adreno device PID8168:32production-engine images exactly match
+  frozen SGSR2 GPU prototype,4,718,592RGBAcomponents, zero captured sync/VUID.
+- Separate timeline-enabled TEST-ONLY gate PID8699:32GPU lifecycle checks.
+  Three submissions are held pending; actual fences are NOT_READY. Premature
+  retirement/release/fourth frame are refused. Aborted initial recording and
+  recycled slots work; four images with distinct sources/jitter match serial
+  reference bit-for-bit. Gate is optional test instrumentation, not an engine
+  dependency. Featureless run above remains separate evidence.
+-1.875x128x72->240x135 PID9554:32images exactly match separately executed
+  prototype PID9718,4,147,200components. This tests the ratio used by
+  1024x576->1080p, not full-resolution performance or a DroidDeck provider.
+- Recompiled existing layer succeeds;27legacy FG/GSR1 GPU checks pass after
+  Api adds the core GetFenceStatus dispatch. Controller APK was not replaced.

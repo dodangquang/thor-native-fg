@@ -31,16 +31,18 @@ def render(w, h, frame, jitter, motion=True):
     return rgba, depth, velocity
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('directory',type=pathlib.Path);p.add_argument('--width',type=int,default=128);p.add_argument('--height',type=int,default=72);p.add_argument('--history-disabled',action='store_true');p.add_argument('--zero-velocity',action='store_true');p.add_argument('--constant-control',action='store_true');p.add_argument('--scene3d',action='store_true');a=p.parse_args()
-    a.directory.mkdir(parents=True,exist_ok=True);w,h=a.width,a.height
+    p=argparse.ArgumentParser();p.add_argument('directory',type=pathlib.Path);p.add_argument('--width',type=int,default=128);p.add_argument('--height',type=int,default=72);p.add_argument('--output-width',type=int);p.add_argument('--output-height',type=int);p.add_argument('--history-disabled',action='store_true');p.add_argument('--zero-velocity',action='store_true');p.add_argument('--constant-control',action='store_true');p.add_argument('--scene3d',action='store_true');a=p.parse_args()
+    a.directory.mkdir(parents=True,exist_ok=True);w,h=a.width,a.height;ow,oh=a.output_width or w*2,a.output_height or h*2
     assert w>=16 and h>=16
+    assert ow>w and oh>h
+    if a.scene3d:assert abs(ow/oh-w/h)<1e-6 # Same field of view in both paired renders.
     records=[]
     with (a.directory/'fixtures.bin').open('wb') as out:
-        out.write(struct.pack('<8s5I',b'THORGS2A',32,w,h,w*2,h*2))
+        out.write(struct.pack('<8s5I',b'THORGS2A',32,w,h,ow,oh))
         for frame in range(32):
             j=(halton(frame%16+1,2)-.5,halton(frame%16+1,3)-.5)
             params=bytearray(144)
-            struct.pack_into('<4I6f',params,0,w,h,w*2,h*2,1/w,1/h,1/(w*2),1/(h*2),*j)
+            struct.pack_into('<4I6f',params,0,w,h,ow,oh,1/w,1/h,1/ow,1/oh,*j)
             struct.pack_into('<16f',params,48,*np.eye(4,dtype='f4').flatten())
             reset=a.history_disabled or frame in (0,16)
             # Camera is exactly identity for all frames; object motion is separate.
@@ -59,12 +61,12 @@ def main():
                 rgba[...,:3]=(40,90,160) if frame<16 else (180,30,65)
                 depth[:]=.7;velocity[...,:2]=32767/65535
             out.write(params);out.write(rgba.tobytes());out.write(depth.tobytes());out.write(velocity.tobytes())
-            ref=render(w*2,h*2,frame,(0,0))[0]
-            if a.scene3d:ref=render3d(w*2,h*2,frame,(0,0),4)[0]
+            ref=render(ow,oh,frame,(0,0))[0]
+            if a.scene3d:ref=render3d(ow,oh,frame,(0,0),4)[0]
             if a.constant_control: ref[...,:3]=rgba[0,0,:3]
             Image.fromarray(ref).save(a.directory/f'frame-{frame:03d}-reference.png')
             Image.fromarray(rgba).save(a.directory/f'frame-{frame:03d}-input.png')
             records.append(dict(frame=frame,jitter=j,reset=reset))
-    manifest=dict(scene_revision=2,scene3d=a.scene3d,width=w,height=h,output=[w*2,h*2],frames=records,history_disabled=a.history_disabled,zero_velocity=a.zero_velocity,constant_control=a.constant_control,source='author-owned moving3Dcamera/static geometry, perspective Vulkan depth, camera reprojection,4sample reference' if a.scene3d else 'author-owned analytic moving planes; identity camera; normal depth; encoded object velocity; Halton jitter',limits='toy scene, no real-game integration or quality equivalence',sha256=hashlib.sha256((a.directory/'fixtures.bin').read_bytes()).hexdigest())
+    manifest=dict(scene_revision=2,scene3d=a.scene3d,width=w,height=h,output=[ow,oh],frames=records,history_disabled=a.history_disabled,zero_velocity=a.zero_velocity,constant_control=a.constant_control,source='author-owned moving3Dcamera/static geometry, perspective Vulkan depth, camera reprojection,4sample reference' if a.scene3d else 'author-owned analytic moving planes; identity camera; normal depth; encoded object velocity; Halton jitter',limits='toy scene, no real-game integration or quality equivalence',sha256=hashlib.sha256((a.directory/'fixtures.bin').read_bytes()).hexdigest())
     (a.directory/'manifest.json').write_text(json.dumps(manifest,indent=2))
 if __name__=='__main__':main()
