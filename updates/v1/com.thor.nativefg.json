@@ -6,8 +6,8 @@
     "versionName":  "0.15.0",
     "minSdk":  29,
     "bytes":  1029800,
-    "sha256":  "16a7639c43767963889a0e1011fea93fed0a4fe9ffaa575c9be975c796a1ddd5",
+    "sha256":  "0f4520ea985dd32677120278a9d27d67abaf55e891044ab04968ec4b60af88ed",
     "apkUrl":  "https://github.com/dodangquang/thor-native-fg/releases/download/thorfg-v0.15.0/ThorNativeFG-0.15.0.apk",
-    "notesVi":  "Ban phat hanh dau tien qua git: tu kiem tra cap nhat, xac minh SHA-256 + chu ky APK, kiem tra ban quyen offline, giao dien ThorQOL.",
-    "notesEn":  "First git-based release: in-app update check with SHA-256 + signature verification, offline licence check, ThorQOL-style UI."
+    "notesVi":  "Giao dien ThorQOL (Viet Hoa PC / Emu Game Store): nen teal, the toi, chu lime, tieu de in hoa nghieng, footer huong dan. Cap nhat qua git + ban quyen offline.",
+    "notesEn":  "ThorQOL look: teal page, dark cards, lime accents, bold uppercase titles, footer hints. Git updates + offline licence."
 }

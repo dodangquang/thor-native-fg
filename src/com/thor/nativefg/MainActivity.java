@@ -18,8 +18,9 @@ import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
     // ThorQOL palette: navy background, lime accent, cyan glow.
-    static final int C_BG=0xFF10151B,C_CARD=0xFF1B202C,C_INNER=0xFF292B40,C_STROKE=0xFF375B67,
-        C_ACCENT=0xFFDCFF30,C_GLOW=0xFF20E5E5,C_TEXT=0xFFF7FFFF,C_TEXT2=0xFFB6C6D0,C_MUTED=0xFF84919D,C_RED=0xFFFF4795;
+    // Palette sampled from the ThorQOL apps (Việt Hóa PC / Emu Game Store).
+    static final int C_BG=0xFF182E3A,C_CARD=0xFF211F2F,C_INNER=0xFF364049,C_STROKE=0xFF3E4652,
+        C_ACCENT=0xFFE7F361,C_GLOW=0xFF35D3C0,C_TEXT=0xFFF4F7F8,C_TEXT2=0xFFB9C4CC,C_MUTED=0xFF8FA0AB,C_RED=0xFFE2453C;
     private TextView status;
     private Button masterBtn,modeGsr2Btn,modeNeuralBtn,modeGsr1Btn,modeFgOnlyBtn;
     private Spinner packages,srModels;
@@ -46,10 +47,11 @@ public class MainActivity extends Activity {
         updates=new AppUpdates(this,()->runOnUiThread(this::refreshUpdateRow));
         LinearLayout page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);page.setPadding(dp(18),dp(14),dp(18),dp(18));page.setBackgroundColor(C_BG);
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.addView(page);setContentView(scroll);
+        LinearLayout content=card();page.addView(content);
 
-        TextView title=text("THOR NATIVE FG",22);title.setTextColor(C_ACCENT);title.setTypeface(Typeface.DEFAULT_BOLD);page.addView(title);
-        TextView sub=text("Bù khung hình + khử răng cưa cho AYN Thor",12);sub.setTextColor(C_TEXT2);page.addView(sub);
-        versionLabel=text("",12);versionLabel.setTextColor(C_MUTED);page.addView(versionLabel);
+        TextView title=text("THORQOL / THOR NATIVE FG",22);title.setTextColor(C_ACCENT);title.setTypeface(Typeface.create("sans-serif",Typeface.BOLD_ITALIC));title.setLetterSpacing(0.02f);content.addView(title);
+        TextView sub=text("BÙ KHUNG HÌNH · KHỬ RĂNG CƯA · AYN THOR",12);sub.setTextColor(C_TEXT);sub.setTypeface(Typeface.DEFAULT_BOLD);sub.setLetterSpacing(0.04f);content.addView(sub);
+        versionLabel=text("",12);versionLabel.setTextColor(C_MUTED);content.addView(versionLabel);
         try{
             PackageInfo info=getPackageManager().getPackageInfo(getPackageName(),0);
             long code=Build.VERSION.SDK_INT>=28?info.getLongVersionCode():info.versionCode;
@@ -57,9 +59,9 @@ public class MainActivity extends Activity {
         }catch(Exception ignored){}
 
         // 1. Nút chính 1 chạm (BẬT / TẮT TOÀN BỘ)
-        masterBtn=new Button(this);masterBtn.setAllCaps(false);masterBtn.setTextSize(16);masterBtn.setTypeface(Typeface.DEFAULT_BOLD);masterBtn.setTextColor(Color.WHITE);
+        masterBtn=new Button(this);masterBtn.setAllCaps(true);masterBtn.setTextSize(16);masterBtn.setLetterSpacing(0.04f);masterBtn.setTypeface(Typeface.DEFAULT_BOLD);masterBtn.setTextColor(Color.WHITE);
         LinearLayout.LayoutParams masterLp=new LinearLayout.LayoutParams(-1,dp(54));masterLp.setMargins(0,dp(6),0,dp(10));
-        page.addView(masterBtn,masterLp);
+        content.addView(masterBtn,masterLp);
         masterBtn.setOnClickListener(v->{
             if(busy)return;
             if(AutoMode.requested(this)){
@@ -80,43 +82,43 @@ public class MainActivity extends Activity {
 
         // 1b. Bản quyền + cập nhật (cùng kiểu thẻ như ThorQOL)
         LinearLayout serviceRow=new LinearLayout(this);serviceRow.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams serviceLp=new LinearLayout.LayoutParams(-1,-2);serviceLp.setMargins(0,0,0,dp(10));page.addView(serviceRow,serviceLp);
+        LinearLayout.LayoutParams serviceLp=new LinearLayout.LayoutParams(-1,-2);serviceLp.setMargins(0,0,0,dp(10));content.addView(serviceRow,serviceLp);
         licenseBtn=pillButton("Bản quyền",()->openLicenseDialog());
         updateBtn=pillButton("Cập nhật",()->openUpdateDialog());
         addWeighted(serviceRow,licenseBtn,dp(6));
         addWeighted(serviceRow,updateBtn,0);
         stylePill(licenseBtn,false);stylePill(updateBtn,false);
-        licenseLabel=text("",12);licenseLabel.setTextColor(C_TEXT2);page.addView(licenseLabel);
-        updateLabel=text("",12);updateLabel.setTextColor(C_MUTED);page.addView(updateLabel);
+        licenseLabel=text("",12);licenseLabel.setTextColor(C_TEXT2);content.addView(licenseLabel);
+        updateLabel=text("",12);updateLabel.setTextColor(C_MUTED);content.addView(updateLabel);
 
-        TextView aaLabel=text("Khử răng cưa (chạm để đổi ngay):",13);aaLabel.setTextColor(Color.rgb(185,205,228));page.addView(aaLabel);
+        content.addView(sectionHeader("Khử răng cưa"));
         LinearLayout srRow=new LinearLayout(this);srRow.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams rowLp=new LinearLayout.LayoutParams(-1,-2);rowLp.setMargins(0,0,0,dp(10));page.addView(srRow,rowLp);
+        LinearLayout.LayoutParams rowLp=new LinearLayout.LayoutParams(-1,-2);rowLp.setMargins(0,0,0,dp(10));content.addView(srRow,rowLp);
         modeGsr2Btn=pillButton("SMAA",()->selectAaMode("smaa"));
         modeNeuralBtn=pillButton("FXAA",()->selectAaMode("fxaa"));
         modeGsr1Btn=pillButton("Tắt AA",()->selectAaMode("off"));
         addWeighted(srRow,modeGsr2Btn,dp(6));
         addWeighted(srRow,modeNeuralBtn,dp(6));
         addWeighted(srRow,modeGsr1Btn,0);
-        page.addView(text("SMAA: khử răng cưa hình thái, giữ chữ UI sắc nét (mặc định). FXAA: rẻ hơn, hơi mờ. AA chỉ áp cho khung 2× (màn 60Hz); chế độ 3× dùng khung thô để đủ ngân sách. Cần mở lại game sau khi đổi.",12));
-        modeFgOnlyBtn=new Button(this);modeFgOnlyBtn.setVisibility(View.GONE);page.addView(modeFgOnlyBtn);
+        content.addView(text("SMAA: khử răng cưa hình thái, giữ chữ UI sắc nét (mặc định). FXAA: rẻ hơn, hơi mờ. AA chỉ áp cho khung 2× (màn 60Hz); chế độ 3× dùng khung thô để đủ ngân sách. Cần mở lại game sau khi đổi.",12));
+        modeFgOnlyBtn=new Button(this);modeFgOnlyBtn.setVisibility(View.GONE);content.addView(modeFgOnlyBtn);
         // The pill row above is the AA selector now; the old checkboxes stay in the
         // layout tree (hidden) so the existing preference plumbing keeps working.
-        smaaToggle=new CheckBox(this);smaaToggle.setVisibility(View.GONE);page.addView(smaaToggle);
+        smaaToggle=new CheckBox(this);smaaToggle.setVisibility(View.GONE);content.addView(smaaToggle);
         smaaToggle.setOnCheckedChangeListener((view,checked)->{
             if(syncingAa)return;
             if(busy){syncingAa=true;smaaToggle.setChecked(AutoMode.smaa(this));syncingAa=false;return;}
             runJob(()->AutoMode.setSmaa(this,checked));
             if(checked){syncingAa=true;taaToggle.setChecked(false);fxaaToggle.setChecked(false);syncingAa=false;}
         });
-        taaToggle=new CheckBox(this);taaToggle.setVisibility(View.GONE);page.addView(taaToggle);
+        taaToggle=new CheckBox(this);taaToggle.setVisibility(View.GONE);content.addView(taaToggle);
         taaToggle.setOnCheckedChangeListener((view,checked)->{
             if(syncingAa)return;
             if(busy){syncingAa=true;taaToggle.setChecked(AutoMode.taa(this));syncingAa=false;return;}
             runJob(()->AutoMode.setTaa(this,checked));
             if(checked){syncingAa=true;fxaaToggle.setChecked(false);smaaToggle.setChecked(false);syncingAa=false;}
         });
-        fxaaToggle=new CheckBox(this);fxaaToggle.setVisibility(View.GONE);page.addView(fxaaToggle);
+        fxaaToggle=new CheckBox(this);fxaaToggle.setVisibility(View.GONE);content.addView(fxaaToggle);
         fxaaToggle.setOnCheckedChangeListener((view,checked)->{
             if(syncingAa)return;
             if(busy){syncingAa=true;fxaaToggle.setChecked(AutoMode.fxaa(this));syncingAa=false;return;}
@@ -125,17 +127,19 @@ public class MainActivity extends Activity {
         });
 
         // 2b. Bù 3 khung hình (3×) — chỉ hợp với game dưới ~40 FPS trên màn 120Hz
-        tripleToggle=new CheckBox(this);tripleToggle.setText("3× tự động · màn 120Hz bù 2 khung (30→90), màn 60Hz layer tự dùng 2×");tripleToggle.setTextColor(Color.rgb(223,233,246));tripleToggle.setChecked(AutoMode.triple(this));page.addView(tripleToggle);
+        content.addView(sectionHeader("Bù khung hình"));
+        tripleToggle=new CheckBox(this);tripleToggle.setText("3× tự động · màn 120Hz bù 2 khung (30→90), màn 60Hz layer tự dùng 2×");tripleToggle.setTextColor(Color.rgb(223,233,246));tripleToggle.setChecked(AutoMode.triple(this));content.addView(tripleToggle);
         tripleToggle.setOnCheckedChangeListener((view,checked)->{
             if(syncingTriple)return;
             if(busy){syncingTriple=true;tripleToggle.setChecked(AutoMode.triple(this));syncingTriple=false;return;}
             runJob(()->AutoMode.setTriple(this,checked));
         });
-        page.addView(text("Layer tự dò nhịp thật của màn hình: 60Hz thì chỉ bù 1 khung (2×), 120Hz thì bù 2 khung (3×) sau khi thử và xác nhận khung sinh thực sự lên màn hình. Bật/tắt ngay khi game đang chạy. Bỏ chọn nếu muốn ép chỉ dùng 2×.",12));
+        content.addView(text("Layer tự dò nhịp thật của màn hình: 60Hz thì chỉ bù 1 khung (2×), 120Hz thì bù 2 khung (3×) sau khi thử và xác nhận khung sinh thực sự lên màn hình. Bật/tắt ngay khi game đang chạy. Bỏ chọn nếu muốn ép chỉ dùng 2×.",12));
 
         // 3. Mở nhanh Game / Giả lập (1 chạm: tự bật + mở app)
-        TextView launchLabel=text("Mở nhanh giả lập (1 chạm tự bật FG + AA & vào thẳng):",13);launchLabel.setTextColor(Color.rgb(185,205,228));page.addView(launchLabel);
-        LinearLayout launchRow=new LinearLayout(this);launchRow.setOrientation(LinearLayout.HORIZONTAL);page.addView(launchRow,rowLp);
+        content.addView(sectionHeader("Mở nhanh"));
+        TextView launchLabel=text("1 chạm tự bật FG + AA rồi vào thẳng",12);launchLabel.setTextColor(C_TEXT2);content.addView(launchLabel);
+        LinearLayout launchRow=new LinearLayout(this);launchRow.setOrientation(LinearLayout.HORIZONTAL);content.addView(launchRow,rowLp);
         Button edenThorBtn=actionButton("🎮 Eden Thor (AA+FG)",C_INNER,()->quickLaunch("dev.eden.eden_emulator.relWithDebInfo"));
         Button edenNightlyBtn=actionButton("🎮 Eden Nightly",C_CARD,()->quickLaunch("dev.eden.eden_emulator.nightly"));
         Button droidDeckBtn=actionButton("💻 DroidDeck (PC)",C_CARD,()->quickLaunch("com.droiddeck.launcher"));
@@ -144,7 +148,7 @@ public class MainActivity extends Activity {
         addWeighted(launchRow,droidDeckBtn,0);
 
         // 4. Thanh công cụ phụ (Hiện/Ẩn FPS, Kiểm tra trạng thái, Tùy chọn nâng cao)
-        LinearLayout utilRow=new LinearLayout(this);utilRow.setOrientation(LinearLayout.HORIZONTAL);page.addView(utilRow,rowLp);
+        LinearLayout utilRow=new LinearLayout(this);utilRow.setOrientation(LinearLayout.HORIZONTAL);content.addView(utilRow,rowLp);
         Button fpsToggleBtn=actionButton("Hiện / Ẩn FPS",C_CARD,()->{
             boolean vis=AutoMode.preferences(this).getBoolean("hud_visible",false);
             if(vis){AutoMode.preferences(this).edit().putBoolean("hud_visible",false).apply();stopService(new Intent(this,FpsOverlayService.class));status.setText("Đã ẩn thanh FPS ngang.");}
@@ -162,10 +166,10 @@ public class MainActivity extends Activity {
         status=text("Bấm nút lớn ở trên hoặc chạm thẳng vào giả lập muốn chơi. Bản Eden Thor dùng chung toàn bộ save game, driver và danh sách game với Eden Nightly.",13);
         GradientDrawable statusBg=new GradientDrawable();statusBg.setColor(Color.rgb(18,30,48));statusBg.setCornerRadius(dp(8));
         status.setBackground(statusBg);status.setPadding(dp(12),dp(10),dp(12),dp(10));
-        page.addView(status,rowLp);
+        content.addView(status,rowLp);
 
         // Khu vực nâng cao (ẩn mặc định)
-        page.addView(advanced);
+        content.addView(advanced);
         advanced.addView(text("Chọn ứng dụng bất kỳ để mở cùng FG + AA:",13));
         packages=new Spinner(this);loadPackages();advanced.addView(packages);
         upscale=new CheckBox(this);upscale.setVisibility(View.GONE);upscale.setText("Bật upscale từ ảnh render thấp");upscale.setTextColor(Color.rgb(223,233,246));upscale.setChecked(AutoMode.preferences(this).getBoolean("upscale",true));advanced.addView(upscale);
@@ -191,6 +195,7 @@ public class MainActivity extends Activity {
         button(advanced,"Chạy cảnh mẫu AA + FG",()->startActivity(new Intent(this,DemoActivity.class)));
 
         String previous=AutoMode.preferences(this).getString("selected_package","");for(int i=0;i<ids.size();i++)if(ids.get(i).equals(previous)){packages.setSelection(i);break;}
+        content.addView(footerHint());
         refreshUiState();
         AppUpdates.autoCheck(this);
         if(getIntent().getBooleanExtra("demo",false)){Intent demo=new Intent(this,DemoActivity.class);demo.putExtra("mode",getIntent().getIntExtra("mode",2));startActivity(demo);}
@@ -210,7 +215,7 @@ public class MainActivity extends Activity {
         });
     }
     private TextView text(String value,int size){TextView v=new TextView(this);v.setText(value);v.setTextSize(size);v.setTextColor(C_TEXT);v.setPadding(0,dp(3),0,dp(5));return v;}
-    private void button(LinearLayout page,String label,Runnable action){Button b=new Button(this);b.setText(label);b.setAllCaps(false);b.setTextSize(13);b.setTextColor(C_TEXT2);GradientDrawable bg=new GradientDrawable();bg.setColor(C_CARD);bg.setCornerRadius(dp(8));bg.setStroke(dp(1),C_STROKE);b.setBackground(bg);page.addView(b);b.setOnClickListener(v->{if(!busy)action.run();});}
+    private void button(LinearLayout host,String label,Runnable action){Button b=new Button(this);b.setText(label);b.setAllCaps(false);b.setTextSize(13);b.setTextColor(C_TEXT2);GradientDrawable bg=new GradientDrawable();bg.setColor(C_INNER);bg.setCornerRadius(dp(10));b.setBackground(bg);host.addView(b);b.setOnClickListener(v->{if(!busy)action.run();});}
     private Button pillButton(String label,Runnable action){
         Button b=new Button(this);b.setText(label);b.setAllCaps(false);b.setTextSize(13);b.setTextColor(C_TEXT);
         b.setOnClickListener(v->{if(!busy)action.run();});return b;
@@ -230,7 +235,7 @@ public class MainActivity extends Activity {
         bg.setCornerRadius(dp(8));
         bg.setStroke(dp(1),active?C_ACCENT:C_STROKE);
         btn.setBackground(bg);
-        btn.setTextColor(active?0xFF10151B:C_TEXT);
+        btn.setTextColor(active?C_CARD:C_TEXT);
         btn.setTypeface(active?Typeface.DEFAULT_BOLD:Typeface.DEFAULT);
     }
     private void refreshUiState(){
@@ -240,11 +245,11 @@ public class MainActivity extends Activity {
         boolean sr=AutoMode.preferences(this).getBoolean("upscale",true);
         String aa=AutoMode.aaMode(this);
         GradientDrawable mBg=new GradientDrawable();
-        mBg.setColor(on?0xFF3A1620:C_ACCENT);
+        mBg.setColor(on?C_RED:C_ACCENT);
         mBg.setCornerRadius(dp(10));
         mBg.setStroke(dp(1),on?C_RED:C_GLOW);
         masterBtn.setBackground(mBg);
-        masterBtn.setTextColor(on?C_TEXT:0xFF10151B);
+        masterBtn.setTextColor(on?C_TEXT:C_CARD);
         masterBtn.setText(on?"⏹ ĐANG BẬT (FG 120Hz + "+aaLabelText(aa)+") · CHẠM ĐỂ TẮT":"⚡ 1 CHẠM: BẬT NGAY (FG 120Hz + "+aaLabelText(aa)+" + FPS)");
         stylePill(modeGsr2Btn,"smaa".equals(aa));
         stylePill(modeNeuralBtn,"fxaa".equals(aa));
@@ -370,10 +375,21 @@ public class MainActivity extends Activity {
     // ---- Cập nhật & bản quyền -------------------------------------------------
     private LinearLayout card(){
         LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);
-        GradientDrawable bg=new GradientDrawable();bg.setColor(C_CARD);bg.setCornerRadius(dp(12));bg.setStroke(dp(1),C_STROKE);
-        box.setBackground(bg);int pad=dp(12);box.setPadding(pad,pad,pad,pad);
-        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(10));box.setLayoutParams(lp);
+        GradientDrawable bg=new GradientDrawable();bg.setColor(C_CARD);bg.setCornerRadius(dp(16));
+        box.setBackground(bg);int pad=dp(16);box.setPadding(pad,pad,pad,pad);
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(12));box.setLayoutParams(lp);
         return box;
+    }
+    private TextView sectionHeader(String label){
+        TextView view=new TextView(this);view.setText(label.toUpperCase(Locale.ROOT));view.setTextSize(15);
+        view.setTextColor(C_TEXT);view.setTypeface(Typeface.DEFAULT_BOLD);
+        view.setLetterSpacing(0.08f);view.setPadding(0,dp(14),0,dp(6));
+        return view;
+    }
+    private TextView footerHint(){
+        TextView view=new TextView(this);view.setText("D-pad / cần trái: di chuyển · A: chọn · B: quay lại");
+        view.setTextSize(11);view.setTextColor(C_MUTED);view.setPadding(0,dp(10),0,0);
+        return view;
     }
 
     private void refreshLicenseRow(){

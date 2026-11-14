@@ -189,7 +189,13 @@ final class AppUpdates {
                     context.getSharedPreferences(PREFS,0).edit().putLong("checked_at",System.currentTimeMillis()).putLong("offer_code",candidate.versionCode).apply();
                 });
             }catch(Exception e){
-                post(()->{state=ERROR;message=t("Chưa kiểm tra được cập nhật. Kiểm tra mạng rồi thử lại.","Could not check for updates. Check your connection and retry.");});
+                // A missing feed (fresh repository, not pushed yet) is the most
+                // common first-run failure, so name it instead of blaming the network.
+                String detail=e.getMessage()==null?"":e.getMessage();
+                String reason=detail.contains("404")
+                    ?t("Feed chưa có trên GitHub (chưa push bản phát hành).","Update feed not found on GitHub (release not pushed yet).")
+                    :t("Chưa kiểm tra được cập nhật. Kiểm tra mạng rồi thử lại.","Could not check for updates. Check your connection and retry.");
+                post(()->{state=ERROR;message=reason;});
             }
         });
     }
