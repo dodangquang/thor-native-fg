@@ -47,7 +47,8 @@ $payload=[ordered]@{
     notesEn=$NotesEn
 }
 New-Item -ItemType Directory -Force -Path (Split-Path $feed -Parent) | Out-Null
-($payload | ConvertTo-Json) | Set-Content -LiteralPath $feed -Encoding UTF8
+# Write without a BOM: org.json rejects a leading U+FEFF on Android.
+[IO.File]::WriteAllText($feed,($payload | ConvertTo-Json),[Text.UTF8Encoding]::new($false))
 
 Write-Host ""
 Write-Host "APK : $releaseApk"

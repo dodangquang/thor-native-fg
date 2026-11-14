@@ -138,7 +138,10 @@ final class AppUpdates {
                     out.write(buffer,0,n);
                 }
             }
-            return new JSONObject(new String(out.toByteArray(),StandardCharsets.UTF_8));
+            // Tolerate a UTF-8 BOM from editors/scripts that still emit one.
+            String text=new String(out.toByteArray(),StandardCharsets.UTF_8);
+            if(text.startsWith("\uFEFF"))text=text.substring(1);
+            return new JSONObject(text.trim());
         }finally{conn.disconnect();}
     }
 
