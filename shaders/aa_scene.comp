@@ -1,0 +1,33 @@
+#version 450
+// Anti-aliasing test pattern: high-contrast diagonals at several slopes, circles,
+// thin strokes and a straight horizon. Axis-aligned rectangles (the old scene)
+// cannot show a morphological filter's effect, so this pattern is what the AA
+// bench renders.
+layout(local_size_x=8,local_size_y=8) in;
+layout(binding=0,rgba8) uniform writeonly image2D result;
+layout(push_constant) uniform Scene { ivec2 size; float time; int cut; } p;
+float lineDistance(vec2 point,float slope,float offset){
+ // distance from point to y = slope*x + offset, in pixels
+ return abs(point.y-(slope*point.x+offset))/sqrt(1.0+slope*slope);
+}
+void main(){
+ ivec2 at=ivec2(gl_GlobalInvocationID.xy);if(any(greaterThanEqual(at,p.size)))return;
+ vec2 px=vec2(at)+0.5;
+ vec3 color=mix(vec3(0.03,0.05,0.09),vec3(0.06,0.12,0.16),px.y/float(p.size.y));
+ // Diagonal lines at 1:1, 1:2 and 1:4 - the classic aliasing cases.
+ float d1=lineDistance(px,1.0,10.0);
+ float d2=lineDistance(px,0.5,120.0);
+ float d3=lineDistance(px,0.25,-40.0);
+ float thin=min(min(d1,d2),d3);
+ if(thin<0.6)color=vec3(1.0,0.85,0.2);
+ // Concentric circles exercise curved edges.
+ float r=length(px-vec2(210.0,120.0));
+ if(abs(r-70.0)<0.6||abs(r-40.0)<0.6)color=vec3(0.4,0.95,0.9);
+ // Thin UI strokes: 1px vertical bar and a small bright block (text proxy).
+ if(px.x>480.0&&px.x<482.0&&px.y>40.0&&px.y<200.0)color=vec3(1.0);
+ if(px.x>500.0&&px.x<506.0&&px.y>40.0&&px.y<46.0)color=vec3(1.0);
+ if(px.x>500.0&&px.x<506.0&&px.y>52.0&&px.y<58.0)color=vec3(1.0);
+ // Straight horizon: must stay perfectly crisp.
+ if(abs(px.y-300.0)<0.5)color=vec3(0.95,0.2,0.25);
+ imageStore(result,at,vec4(color,1));
+}

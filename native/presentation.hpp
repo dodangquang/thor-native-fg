@@ -58,7 +58,12 @@ struct SourceCadence {
   return (sum+(end-begin)/2)/(end-begin);
  }
  bool ready()const{return last>=first&&last-first>=250000000ull&&gaps.size()>=8;}
- bool canDouble(uint64_t refresh)const{return ready()&&double(interval())>=double(refresh)*1.9;}
+ // 1.6 instead of 1.9: a 30 FPS source (33.3ms) with a few fast frames dips
+ // below 31.7ms at 1.9 and dropped generation for a frame (the 30 FPS blip).
+ // 1.6 keeps doubling through such bursts and still rejects 40+ FPS sources.
+ bool canDouble(uint64_t refresh)const{return ready()&&double(interval())>=double(refresh)*1.6;}
+ // Three output slots need roughly three refresh intervals per source frame.
+ bool canTriple(uint64_t refresh)const{return ready()&&double(interval())>=double(refresh)*2.9;}
 };
 
 struct PairSchedule {bool generate;uint64_t generated,real;};
@@ -82,4 +87,17 @@ inline PairSchedule planPairPresentation(uint64_t now,uint64_t half,uint64_t ref
  // backwards. A diagnostic legacy policy permits the same-binary control.
  if(bounded&&generated>now+3*refresh)return {false,0,std::max(now+refresh/3,lastReal+refresh)};
  return {true,generated,generated+half};
+}
+
+// 3x: two generated slots plus the real frame, one third of the source interval
+// apart. Same bound as the pair planner so a slow estimate cannot accumulate
+// deadlines into the future.
+struct TripleSchedule {bool generate;uint64_t generated1,generated2,real;};
+inline TripleSchedule planTriplePresentation(uint64_t now,uint64_t third,uint64_t refresh,uint64_t lastReal,bool bounded=true,uint64_t source=0){
+ third=std::max(third,refresh);
+ uint64_t first=lastReal?lastReal+third:now+refresh;
+ if(first<now+refresh/3)first=now+refresh;
+ if(source)first=std::max(first,source+2*refresh);
+ if(bounded&&first>now+3*refresh)return {false,0,0,std::max(now+refresh/3,lastReal+refresh)};
+ return {true,first,first+third,first+2*third};
 }

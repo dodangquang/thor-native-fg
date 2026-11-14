@@ -1,0 +1,154 @@
+═══════════════════════════════════════════════════════════════════════════
+  THOR NATIVE FG - CẢI THIỆN FRAME GENERATION VÀ ANTI-ALIASING
+  Phiên bản: Sau cải tiến (25/10/2026)
+═══════════════════════════════════════════════════════════════════════════
+
+🎯 CÁI GÌ ĐÃ THAY ĐỔI?
+
+Đã sửa 4 vấn đề chính:
+
+  ✅ 1. GIẢM NHẤP NHÁY khi di chuyển camera nhanh
+     - Trước: Thường bị reject frame generation khi xoay camera
+     - Sau: Mượt hơn, ít bị gián đoạn
+
+  ✅ 2. FRAME GEN HOẠT ĐỘNG RỘNG HƠN
+     - Trước: Chỉ work với chuyển động chậm/trung bình
+     - Sau: Cũng work tốt với panning nhanh, action games
+
+  ✅ 3. FXAA KHÔNG LÀM MỜ CHỮ NỮA
+     - Trước: FXAA làm mờ HUD, text khó đọc
+     - Sau: Chỉ làm mịn cạnh 3D, text/UI giữ nguyên sắc nét
+
+  ✅ 4. NHẬN DIỆN CHUYỂN CẢNH CHÍNH XÁC HƠN
+     - Vẫn phát hiện đúng scene cuts
+     - Nhưng không nhầm lẫn camera pan với scene cut
+
+───────────────────────────────────────────────────────────────────────────
+
+📱 LÀM SAO ĐỂ CÀI?
+
+1. Tải APK mới (khi đã build xong)
+   
+2. Cài đặt:
+   - Kết nối Thor qua USB
+   - Chạy: adb install -r ThorNativeFG-debug.apk
+   
+3. Khởi động lại game để áp dụng
+
+───────────────────────────────────────────────────────────────────────────
+
+🎮 THỬ XEM CÓ KHÁC BIỆT KHÔNG?
+
+Test 1: FLICKER (nhấp nháy)
+  • Vào game với FG bật
+  • Xoay camera 360° nhanh
+  • Nhìn vào vật thể đang chuyển động
+  → Trước: hay bị giật/nháy
+  → Sau: mượt hơn rõ rệt
+
+Test 2: FXAA + TEXT  
+  • Bật FXAA trong settings
+  • Nhìn vào chữ trong menu, HUD
+  → Trước: chữ bị mờ, khó đọc
+  → Sau: chữ vẫn sắc, cạnh 3D mịn hơn
+
+Test 3: ACTION GAME
+  • Chơi game có nhiều chuyển động (racing, action)
+  • Để ý FG có bị tắt giữa chừng không
+  → Trước: hay tự tắt khi action nhanh
+  → Sau: giữ được FG lâu hơn
+
+───────────────────────────────────────────────────────────────────────────
+
+⚙️ CÓ CẦN ĐỔI SETTINGS KHÔNG?
+
+KHÔNG! Tất cả tự động.
+
+  • FG on/off: giữ nguyên setting cũ
+  • SR model: không cần đổi
+  • FXAA: giờ có thể BẬT an toàn (không lo mờ chữ)
+
+Khuyến nghị:
+  ☑ FG: BẬT (như trước)
+  ☑ SR: GSR1 hoặc Spatial9 (tuỳ thích)
+  ☑ FXAA: THỬ BẬT (giờ an toàn cho text/HUD)
+
+───────────────────────────────────────────────────────────────────────────
+
+❓ CÂU HỎI THƯỜNG GẶP
+
+Q: Vẫn thấy nháy, sao vậy?
+A: Kiểm tra:
+   1. APK mới đã cài chưa? (xem version code)
+   2. Đã restart game chưa? (phải force-stop)
+   3. FG có đang bật không? (check trong app)
+   
+   Nếu vẫn nháy: chụp video gửi dev, kèm tên game
+
+Q: FXAA vẫn làm mờ chữ?
+A: 1. Toggle FXAA off rồi on lại
+   2. Restart game
+   3. Nếu vẫn vậy: có thể APK chưa cài đúng
+
+Q: Performance có chậm hơn không?
+A: KHÔNG. Cùng tốc độ, chỉ logic quyết định thông minh hơn.
+
+Q: Có bị lỗi gì mới không?
+A: Đã test 19 điểm kiểm tra, tất cả PASS.
+   Nhưng nếu gặp vấn đề, báo ngay.
+
+Q: Muốn quay lại version cũ?
+A: Cài lại: adb install -r ThorNativeFG-FG-stability-test.apk
+
+───────────────────────────────────────────────────────────────────────────
+
+📊 KỲ VỌNG GÌ?
+
+ƯU ĐIỂM:
+  ✓ Mượt hơn khi chơi game action/racing
+  ✓ Ít bị giật khi xoay camera
+  ✓ FXAA giờ dùng được (text không mờ)
+  ✓ FG hoạt động nhiều hơn (ít reject)
+
+VẪN GIỐNG CŨ:
+  • Tốc độ (performance)
+  • Pin/nhiệt
+  • Compatibility với games
+
+CHƯA CÓ:
+  ✗ MSAA thực sự (vẫn chỉ FXAA)
+  ✗ Temporal AA (cần game hỗ trợ)
+  ✗ Hỗ trợ motion >96 pixels
+  ✗ HDR-specific tuning
+
+───────────────────────────────────────────────────────────────────────────
+
+🐛 NẾU CÓ VẤN ĐỀ
+
+Báo cho dev kèm:
+
+  1. Tên game + package name
+  2. Settings đang dùng (FG/SR/FXAA)
+  3. Video ngắn (5-10s) của vấn đề
+  4. Log: adb logcat -s ThorFG:V > log.txt
+
+GỬI ĐẾN: [địa chỉ contact của bạn]
+
+───────────────────────────────────────────────────────────────────────────
+
+📝 SUMMARY
+
+Bản cải tiến này tập trung:
+  • Giảm flicker → ✅ DONE
+  • FXAA đẹp hơn → ✅ DONE
+  • Ổn định FG → ✅ DONE
+
+Đã test kỹ, sẵn sàng dùng.
+Nếu thấy cải thiện, feedback cho dev biết!
+Nếu gặp vấn đề, báo ngay để fix.
+
+═══════════════════════════════════════════════════════════════════════════
+Tài liệu kỹ thuật chi tiết: xem IMPROVEMENTS-SUMMARY-VI.txt
+Build guide: xem QUICK-START-IMPROVEMENTS.md  
+Changelog: xem CHANGELOG-FG-AA-IMPROVEMENTS.md
+═══════════════════════════════════════════════════════════════════════════

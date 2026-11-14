@@ -79,5 +79,46 @@ int main(){
  check(thirty.generated>=base+2*refresh&&thirty.real-thirty.generated==2*refresh,"30FPS retains half-source spacing after the generated target floor");
  auto lateReady=planPairPresentation(base+4*refresh,refresh,refresh,0,false,base);
  check(lateReady.generated==base+5*refresh,"the source floor adds no delay when GPU readiness is already late");
+ bool legacyBacklog=false,boundedBacklog=false,monotonic=true;uint64_t legacyReal=0,boundedReal=0,source=base;
+ for(uint32_t i=0;i<120;i++){
+  uint64_t previousSource=source;source+=i%2?48000000ull:32000000ull;monotonic&=source>previousSource;
+  auto legacy=planPairPresentation(source,21000000,refresh,legacyReal,false,source);legacyReal=legacy.real;
+  auto bounded=planPairPresentation(source,21000000,refresh,boundedReal,true,source);
+  legacyBacklog|=legacy.generated>source+3*refresh;
+  boundedBacklog|=bounded.generate&&bounded.generated>source+3*refresh;
+  boundedReal=bounded.real;
+ }
+ check(monotonic&&legacyBacklog&&!boundedBacklog,"monotonic32/48ms arrivals expose future-frame backlog only in legacy scheduling");
+ // 3x: three display slots per source frame. The cadence gate is stricter than
+ //2x, so a fast source is never split into sub-refresh intervals.
+ SourceCadence thirtyCadence;for(int i=0;i<25;i++)thirtyCadence.record(base+uint64_t(i)*33333333ull);
+ check(thirtyCadence.ready()&&thirtyCadence.canTriple(refresh),"native30FPS leaves room for a triple presentation on120Hz");
+ SourceCadence sixtyCadence;for(int i=0;i<25;i++)sixtyCadence.record(base+uint64_t(i)*16666667ull);
+ check(sixtyCadence.ready()&&sixtyCadence.canDouble(refresh)&&!sixtyCadence.canTriple(refresh),"native60FPS keeps2x and never gets a triple presentation on120Hz");
+ SourceCadence fortyCadence;for(int i=0;i<25;i++)fortyCadence.record(base+uint64_t(i)*25000000ull);
+ check(fortyCadence.canTriple(refresh),"40FPS still fits three120Hz slots");
+ SourceCadence twentyFive;for(int i=0;i<25;i++)twentyFive.record(base+uint64_t(i)*40000000ull);
+ check(twentyFive.canTriple(refresh),"25FPS is eligible for3x");
+ auto tripleQueued=planTriplePresentation(base,refresh,refresh,base+3*refresh);
+ check(!tripleQueued.generate,"an intermediate triple frame is rejected instead of extending an already late queue");
+ auto tripleSpaced=planTriplePresentation(base,11111111ull,refresh,0,false,base);
+ check(tripleSpaced.generate&&tripleSpaced.generated1>=base+2*refresh&&tripleSpaced.generated2-tripleSpaced.generated1==11111111ull&&tripleSpaced.real-tripleSpaced.generated2==11111111ull,"triple slots keep one third of the source interval apart");
+ auto tripleEarly=planTriplePresentation(base+1000000,refresh,refresh,0,false,base);
+ check(tripleEarly.generate&&tripleEarly.real>=base+4*refresh,"fast GPU readiness cannot pull the3x real frame into the first generated slot");
+ bool steadyTriple=true,orderedTriple=true;uint64_t tripleLast=0;
+ for(int i=0;i<120;i++){
+  uint64_t ready=base+uint64_t(i)*33333333ull;auto plan=planTriplePresentation(ready,11111111ull,refresh,tripleLast);
+  steadyTriple&=plan.generate&&plan.generated1>=ready&&plan.real-plan.generated2==11111111ull;
+  orderedTriple&=!tripleLast||plan.real>=tripleLast+refresh;tripleLast=plan.real;
+ }
+ check(steadyTriple&&orderedTriple,"steady30FPS retains both generated slots without phase drift");
+ bool boundedTriple=true;tripleLast=0;
+ for(int i=0;i<120;i++){
+  uint64_t ready=base+uint64_t(i)*32000000ull+(i%2?0:9000000);auto plan=planTriplePresentation(ready,10666666ull,refresh,tripleLast);
+  boundedTriple&=!plan.generate||(plan.generated1<=ready+3*refresh&&plan.real<=ready+3*refresh+2*10666666ull);
+  tripleLast=plan.real;
+ }
+ check(boundedTriple,"irregular triple pacing cannot accumulate future presentation cycles");
+
  printf("RESULT checks=%d failures=%d\n",checks,failures);return failures?1:0;
 }

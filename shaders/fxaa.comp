@@ -1,0 +1,58 @@
+#version 450
+// Adaptive FXAA: contrast rejection, edge classification, and selective filtering.
+// Reference: NVIDIA FXAA whitepaper. Enhanced to preserve UI/text while smoothing geometry.
+layout(local_size_x=8,local_size_y=8) in;
+layout(binding=0) uniform sampler2D source;
+layout(binding=1,rgba8) uniform writeonly image2D result;
+layout(push_constant) uniform Params {ivec2 size;} p;
+float luma(vec3 c){return dot(c,vec3(0.299,0.587,0.114));}
+void main(){
+ ivec2 at=ivec2(gl_GlobalInvocationID.xy);if(any(greaterThanEqual(at,p.size)))return;
+ vec2 px=1.0/vec2(p.size),uv=(vec2(at)+0.5)*px;
+ vec4 center=texelFetch(source,at,0);
+ float m=luma(center.rgb);
+ 
+ // Sample 3x3 neighborhood for better edge characterization
+ float n=luma(textureLod(source,uv+vec2(0,-1)*px,0).rgb);
+ float s=luma(textureLod(source,uv+vec2(0,1)*px,0).rgb);
+ float e=luma(textureLod(source,uv+vec2(1,0)*px,0).rgb);
+ float w=luma(textureLod(source,uv+vec2(-1,0)*px,0).rgb);
+ float nw=luma(textureLod(source,uv+vec2(-1,-1)*px,0).rgb);
+ float ne=luma(textureLod(source,uv+vec2(1,-1)*px,0).rgb);
+ float sw=luma(textureLod(source,uv+vec2(-1,1)*px,0).rgb);
+ float se=luma(textureLod(source,uv+vec2(1,1)*px,0).rgb);
+ 
+ float lo=min(m,min(min(nw,ne),min(sw,se))),hi=max(m,max(max(nw,ne),max(sw,se)));
+ float range=hi-lo;
+ 
+ // Enhanced contrast threshold - OPTIMIZED: Lower threshold for better AA coverage
+ // Reduced from 0.0312 to 0.025 to catch more subtle aliasing
+ if(range<max(0.025,hi*0.1)){imageStore(result,at,center);return;}
+ 
+ // Detect high-frequency patterns (text, UI elements)
+ // Text typically has sharp, small-scale edges with high local variance
+ float horizontal=abs((nw+n+ne)-(sw+s+se))/3.0;
+ float vertical=abs((nw+w+sw)-(ne+e+se))/3.0;
+ float crossPattern=abs(m*4.0-(n+s+e+w));
+ 
+ // High cross-pattern with moderate range suggests UI/text: an isolated
+ // thin bright/dark stroke, not a wide silhouette edge. Previously any
+ // high-contrast edge (range>0.25) was treated the same way and only got a
+ // weak box blur instead of real edge AA - that left ordinary high-contrast
+ // 3D geometry edges (object against sky, etc.) jagged. Only genuine
+ // text-like patterns should skip the full directional filter below.
+ bool likelyText=crossPattern>range*1.5&&range>0.15;
+ if(likelyText){
+   imageStore(result,at,center);
+   return;
+ }
+ 
+ // Standard FXAA for geometry edges
+ vec2 dir=vec2(-((nw+ne)-(sw+se)),(nw+sw)-(ne+se));
+ float reduce=max((nw+ne+sw+se)*(0.25*0.125),1.0/128.0);
+ dir=clamp(dir/(min(abs(dir.x),abs(dir.y))+reduce),vec2(-8),vec2(8))*px;
+ vec3 a=0.5*(textureLod(source,uv-dir/6.0,0).rgb+textureLod(source,uv+dir/6.0,0).rgb);
+ vec3 b=a*0.5+0.25*(textureLod(source,uv-dir*0.5,0).rgb+textureLod(source,uv+dir*0.5,0).rgb);
+ float lb=luma(b);
+ imageStore(result,at,vec4((lb<lo||lb>hi)?a:b,center.a));
+}

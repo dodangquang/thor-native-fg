@@ -13,23 +13,71 @@ final class AutoMode {
     }
     static SharedPreferences preferences(Context context){return context.getSharedPreferences("thor",Context.MODE_PRIVATE);}
     static boolean requested(Context context){return preferences(context).getBoolean("auto_enabled",false);}
+    static boolean fxaa(Context context){return preferences(context).getBoolean("fxaa",false);}
+    static synchronized String setFxaa(Context context,boolean enabled)throws Exception{
+        String value=enabled?"1":"0";
+        RootShell.run("set -e\nsetprop persist.thorfg.fxaa "+value+"\ntest \"$(getprop persist.thorfg.fxaa)\" = "+value+(enabled?"\nsetprop persist.thorfg.smaa 0":""));
+        SharedPreferences.Editor editor=preferences(context).edit().putBoolean("fxaa",enabled);
+        if(enabled)editor.putBoolean("smaa",false);
+        editor.apply();
+        return "Đã "+(enabled?"bật":"tắt")+" FXAA sau upscale. Lưu và mở lại game để áp dụng đồng nhất. FXAA chỉ chạy khi SR của Thor thực sự hoạt động; có thể làm mềm chữ HUD.";
+    }
+    // SMAA (morphological) được ưu tiên cho game giả lập: giữ chữ UI sắc nét
+    // hơn FXAA đồng thời khử răng cưa chéo mạnh hơn.
+    static String aaMode(Context context){return smaa(context)?"smaa":fxaa(context)?"fxaa":"off";}
+ static boolean smaa(Context context){return preferences(context).getBoolean("smaa",true);}
+    static synchronized String setSmaa(Context context,boolean enabled)throws Exception{
+        String value=enabled?"1":"0";
+        // SMAA and TAA/FXAA all anti-alias; running two costs an extra GPU
+        // pass for no real gain, so turning SMAA on switches the others off.
+        RootShell.run("set -e\nsetprop persist.thorfg.smaa "+value+"\ntest \"$(getprop persist.thorfg.smaa)\" = "+value+(enabled?"\nsetprop persist.thorfg.fxaa 0\nsetprop persist.thorfg.taa 0":""));
+        SharedPreferences.Editor editor=preferences(context).edit().putBoolean("smaa",enabled);
+        if(enabled){editor.putBoolean("fxaa",false);editor.putBoolean("taa",false);}
+        editor.apply();
+        return "Đã "+(enabled?"bật":"tắt")+" SMAA (khử răng cưa hình thái, nét hơn FXAA và giữ chữ HUD). Mở lại game để áp dụng.";
+    }
+    static boolean taa(Context context){return preferences(context).getBoolean("taa",false);}
+    static synchronized String setTaa(Context context,boolean enabled)throws Exception{
+        String value=enabled?"1":"0";
+        // TAA and FXAA/SMAA both anti-alias; running both costs an extra GPU
+        // pass for no real gain, so turning TAA on switches the others off.
+        RootShell.run("set -e\nsetprop persist.thorfg.taa "+value+"\ntest \"$(getprop persist.thorfg.taa)\" = "+value+(enabled?"\nsetprop persist.thorfg.fxaa 0\nsetprop persist.thorfg.smaa 0":""));
+        SharedPreferences.Editor editor=preferences(context).edit().putBoolean("taa",enabled);
+        if(enabled){editor.putBoolean("fxaa",false);editor.putBoolean("smaa",false);}
+        editor.apply();
+        return "Đã "+(enabled?"bật":"tắt")+" TAA (khử răng cưa theo thời gian, nhẹ hơn 1 pass so với FXAA đủ chuyển động). Mở lại game để áp dụng.";
+    }
+    // Auto is the default: the layer probes the panel and keeps three slots only
+    // when the display really runs at120Hz. Turning it off writes0, so a60Hz
+    // mode is never asked for a third slot it cannot show.
+    static boolean triple(Context context){return preferences(context).getBoolean("triple",true);}
+    static synchronized String setTriple(Context context,boolean enabled)throws Exception{
+        String value=enabled?"auto":"0",persisted=enabled?"1":"0";
+        // persist.* survives reboot; service.sh copies it into the debug property
+        // the layer reads, so a reboot cannot silently drop the user's choice.
+        RootShell.run("set -e\nsetprop persist.thorfg.triple "+persisted+"\nsetprop debug.thorfg.triple "+value+"\ntest \"$(getprop debug.thorfg.triple)\" = "+value);
+        preferences(context).edit().putBoolean("triple",enabled).apply();
+        if(requested(context))applyRefreshHold(context,enabled);
+        if(!enabled)return "Đã tắt 3× — luôn dùng bù 1 khung (2×). Áp dụng ngay ở khung hình kế tiếp.";
+        return "Đã bật 3× tự động: màn 120Hz thì bù 2 khung (30→90), màn 60Hz layer tự dùng 2× (30→60). Áp dụng ngay, không cần mở lại game.";
+    }
     static String model(Context context){
-        String m=preferences(context).getString("sr_model","sgsr2");
+        String m=preferences(context).getString("sr_model","sgsr1");
         if("neural2d".equals(m)||"sgsr1".equals(m)||"sgsr2".equals(m))return m;
-        return "sgsr2";
+        return "sgsr1";
     }
     static String modelLabel(Context context){
         String m=model(context);
-        return "sgsr2".equals(m)?"GSR2 (Temporal)":("neural2d".equals(m)?"Neural 2D":"GSR1");
+        return "sgsr2".equals(m)?"Spatial 9-tap":("neural2d".equals(m)?"Neural 2D":"GSR1");
     }
     static synchronized String setModel(Context context,String selected)throws Exception{
-        if(!"neural2d".equals(selected)&&!"sgsr1".equals(selected))selected="sgsr2";
+        if(!"neural2d".equals(selected)&&!"sgsr2".equals(selected))selected="sgsr1";
         RootShell.run("set -e\nsetprop persist.thorfg.sr_model "+selected+"\ntest \"$(getprop persist.thorfg.sr_model)\" = "+selected);
         preferences(context).edit().putString("sr_model",selected).putBoolean("neural_sr","neural2d".equals(selected)).apply();
         return "Đã chọn "+modelLabel(context)+". Lựa chọn được áp dụng ngay cho lần vào game tiếp theo và giữ qua reboot.";
     }
     static synchronized String setNeural(Context context,boolean enabled)throws Exception{
-        return setModel(context,enabled?"neural2d":"sgsr2");
+        return setModel(context,enabled?"neural2d":"sgsr1");
     }
     static String foregroundScript(){
         // Consume the whole dump: an early pipe close can make dumpsys emit a
@@ -92,11 +140,40 @@ final class AutoMode {
         String cleanupGlobal=enabled?"settings delete global enable_gpu_debug_layers >/dev/null 2>&1 || true\nsettings delete global gpu_debug_app >/dev/null 2>&1 || true\nsettings delete global gpu_debug_layers >/dev/null 2>&1 || true\nsettings delete global gpu_debug_layer_app >/dev/null 2>&1 || true\nsetprop debug.thorfg.enabled 0\nsetprop debug.thorfg.target ''\n":"";
         String script="set -e\n"+(enabled?"test -f "+module+"/module.prop\ntest ! -f "+module+"/disable\n":"")+"test -f "+RootShell.quote(provider+"/libVkLayer_ThorFG.so")+
             "\nmkdir -p "+DIRECTORY+"\nchmod 700 "+DIRECTORY+"\numask 077\nprintf %s "+RootShell.quote(config.toString())+" > "+FILE+".tmp\nchmod 600 "+FILE+".tmp\nchown 0:0 "+FILE+".tmp\nmv -f "+FILE+".tmp "+FILE+
-            "\n"+cleanupGlobal+syncEdenScript()+"setprop persist.thorfg.sr_model "+model(context)+"\nsetprop debug.thorfg.auto_sr "+(sr?"1":"0")+"\nsetprop debug.thorfg.auto "+(enabled?"1":"0")+"\ngetprop sys.thorfg.bootstrap\n";
+            "\n"+cleanupGlobal+syncEdenScript()+"setprop persist.thorfg.smaa "+(smaa(context)?"1":"0")+"\nsetprop persist.thorfg.fxaa "+(fxaa(context)?"1":"0")+"\nsetprop persist.thorfg.taa "+(taa(context)?"1":"0")+"\nsetprop persist.thorfg.sr_model "+model(context)+"\nsetprop persist.thorfg.triple "+(triple(context)?"1":"0")+"\nsetprop debug.thorfg.triple "+(triple(context)?"auto":"0")+"\nsetprop debug.thorfg.auto_sr "+(sr?"1":"0")+"\nsetprop debug.thorfg.auto "+(enabled?"1":"0")+"\ngetprop sys.thorfg.bootstrap\n";
         String version=RootShell.runMaster(script);preferences(context).edit().putBoolean("auto_enabled",enabled).putBoolean("upscale",sr).apply();
+        // A game's swapchain is created at launch, so the panel must already run
+        // at120Hz: changing it afterwards leaves the surface paced at60 and the
+        // third generated frame never reaches the display.
+        if(enabled&&triple(context))applyRefreshHold(context,true);else applyRefreshHold(context,false);
         if(!enabled)return "Đã tắt tự động. Layer đã nạp sẽ ngừng FG; lần mở mới không được tự nạp nữa. Chế độ bật thủ công có cấu hình riêng.";
         if(!version.equals("2")&&!version.equals("3"))return "Đã lưu tự động cho "+count+" ứng dụng. Cần module bootstrap 0.2 trở lên và khởi động lại máy để nạp bộ kích hoạt mới. Chưa xác nhận tự động hoạt động. Không tự đóng game đang chạy.";
         return "Đã bật tự động cho "+count+" game/giả lập. Mở ứng dụng từ launcher bình thường; chọn Vulkan. Ứng dụng đang chạy cần lưu và thoát/mở lại một lần để nạp layer. Ô FPS chỉ hiện khi ứng dụng trong danh sách đang ở trước.";
     }
     static synchronized void refresh(Context context)throws Exception{if(requested(context))configure(context,true,preferences(context).getBoolean("upscale",true));}
+    /** Keeps the panel at120Hz while frame generation is armed and restores the user's own values afterwards. */
+    static synchronized void applyRefreshHold(Context context,boolean hold)throws Exception{
+        SharedPreferences prefs=preferences(context);
+        if(hold){
+            if(!prefs.contains("refresh_saved")){
+                String peak=RootShell.run("settings get system peak_refresh_rate").trim();
+                String min=RootShell.run("settings get system min_refresh_rate").trim();
+                prefs.edit().putString("refresh_saved",peak+"|"+min).apply();
+            }
+            RootShell.run("settings put system peak_refresh_rate 120.0\nsettings put system min_refresh_rate 120.0");
+            return;
+        }
+        String saved=prefs.getString("refresh_saved",null);
+        if(saved==null)return;
+        String[] parts=saved.split("\\|",-1);
+        StringBuilder script=new StringBuilder();
+        for(int i=0;i<2;i++){
+            String key=i==0?"peak_refresh_rate":"min_refresh_rate";
+            String value=parts.length>i?parts[i].trim():"";
+            if(value.isEmpty()||"null".equals(value))script.append("settings delete system ").append(key).append('\n');
+            else script.append("settings put system ").append(key).append(' ').append(value).append('\n');
+        }
+        RootShell.run(script.toString());
+        prefs.edit().remove("refresh_saved").apply();
+    }
 }

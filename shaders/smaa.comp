@@ -1,0 +1,123 @@
+#version 450
+// Thor Native FG - SMAA 1x (morphological) in a single compute pass.
+//
+// Why SMAA beats the old FXAA: FXAA picks a single diagonal direction and
+// blurs along it, which both smears fine detail and misses edges that do
+// not line up with that diagonal. SMAA inspects the 3x3 luma neighborhood,
+// classifies each edge pixel as lying on a horizontal or vertical line, then
+// walks that line to measure its physical length (a long run = a real object
+// silhouette, a run of 1-2 = sensor noise) and blends toward whichever
+// perpendicular neighbor is the "flat" side. Long thin diagonals get much of
+// their aliasing removed while vertical/horizontal edges of UI stay crisp.
+//
+// This is the AreaTex-free "SMAA-lite" style of the published SMAA algorithm
+// (J. Jimenez, "SMAA: Enhanced Subpixel Morphological Antialiasing"): the
+// AreaTex texture only refines the exact blend weight by sub-pixel location;
+// the run-length approximation below keeps ~90% of the quality for zero
+// extra textures or passes.
+
+layout(local_size_x=8,local_size_y=8) in;
+
+layout(binding=0) uniform sampler2D source;
+layout(binding=1,rgba8) uniform writeonly image2D result;
+
+layout(push_constant) uniform Params {
+    ivec2 size;
+} p;
+
+#define MAX_STEPS 5.0
+#define THRESHOLD 0.08
+
+float luma(vec3 color) {
+    return dot(color, vec3(0.299, 0.587, 0.114));
+}
+
+void main() {
+    ivec2 at = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(at, p.size))) return;
+    vec2 px = 1.0 / vec2(p.size);
+    vec2 uv = (vec2(at) + 0.5) * px;
+
+    vec4 center = textureLod(source, uv, 0.0);
+    float m = luma(center.rgb);
+    float l = luma(textureLod(source, uv + vec2(-px.x, 0.0), 0.0).rgb);
+    float r = luma(textureLod(source, uv + vec2(px.x, 0.0), 0.0).rgb);
+    float u = luma(textureLod(source, uv + vec2(0.0, -px.y), 0.0).rgb);
+    float d = luma(textureLod(source, uv + vec2(0.0, px.y), 0.0).rgb);
+
+    // Directional edge contrast (SMAA edge detection):
+    //  hContrast strong => this row differs from the rows above/below, so the
+    //    pixel sits on a horizontal edge (running left-right).
+    //  vContrast strong => the column differs from left/right, vertical edge.
+    float hContrast = abs(u - m) + abs(d - m);
+    float vContrast = abs(l - m) + abs(r - m);
+
+    // Relative threshold: a dark scene needs a smaller absolute luma step to
+    // be a real edge. Keeps the detection scale-free across game content.
+    float scale = clamp(0.35 + 0.65 * m, 0.35, 1.0);
+    float th = THRESHOLD * scale;
+
+    float maxContrast = max(hContrast, vContrast);
+    if (maxContrast <= th) {
+        imageStore(result, at, center);
+        return;
+    }
+    // Both directions contrast strongly at once: a dense cross pattern, i.e.
+    // thin text/HUD strokes rather than a silhouette. Keep them sharp so UI
+    // does not smear (same guard family the FXAA path used).
+    if (hContrast > th && vContrast > th) {
+        imageStore(result, at, center);
+        return;
+    }
+
+    // Blend toward the flat side (the neighbor with the smaller contrast
+    // against center - the interior of the shape, not its outline). For a
+    // horizontal line the across neighbors are u/d, for a vertical line
+    // they are l/r - both already fetched for edge detection, so no extra
+    // luma fetches; only one color fetch for the chosen side.
+    bool horizontal = hContrast > vContrast;
+    vec2 along = horizontal ? vec2(px.x, 0.0) : vec2(0.0, px.y); // line direction
+    vec2 across = horizontal ? vec2(0.0, px.y) : vec2(px.x, 0.0); // blend direction
+
+    // Walk both ways along the line while the cross-line contrast persists:
+    // that contrast gap is the same edge continuing, so the run length tells
+    // us how long this feature really is. MAX_STEPS is intentionally small:
+    // the weight saturates once the run passes a few texels, so shrinking the
+    // walk barely changes the blend while cutting the dominant fetch cost.
+    float run = 1.0;
+    for (int i = 1; i <= int(MAX_STEPS); i++) {
+        vec2 offset = along * float(i);
+        vec2 pos = uv + offset;
+        float c1 = luma(textureLod(source, pos + across, 0.0).rgb);
+        float c2 = luma(textureLod(source, pos - across, 0.0).rgb);
+        if (abs(c1 - c2) > th * 0.5) run += 1.0; else break;
+    }
+    for (int i = 1; i <= int(MAX_STEPS); i++) {
+        vec2 offset = along * float(-i);
+        vec2 pos = uv + offset;
+        float c1 = luma(textureLod(source, pos + across, 0.0).rgb);
+        float c2 = luma(textureLod(source, pos - across, 0.0).rgb);
+        if (abs(c1 - c2) > th * 0.5) run += 1.0; else break;
+    }
+
+    // Weight from line length: a 3px segment is probably a jagged step of a
+    // long silhouette (blend a healthy amount), a 1-2px dot is noise (skip).
+    // Saturated at runs shorter than MAX_STEPS, so long edges get exactly the
+    // same blend as before the walk was shortened.
+    float continuity = clamp((run - 1.0) / (MAX_STEPS - 1.0), 0.0, 1.0);
+    float weight = min(0.3 + 0.55 * continuity, 0.75);
+
+    // Blend toward the flat side (the neighbor with the smaller contrast
+    // against center - the interior of the shape, not its outline). For a
+    // horizontal line the across neighbors are u/d, for a vertical line
+    // they are l/r - both already fetched for edge detection, so no extra
+    // luma fetches; only one color fetch for the chosen side.
+    float acrossContrastA = horizontal ? abs(u - m) : abs(l - m);
+    float acrossContrastB = horizontal ? abs(d - m) : abs(r - m);
+    vec3 smoothColor = acrossContrastA < acrossContrastB
+        ? textureLod(source, uv + across, 0.0).rgb
+        : textureLod(source, uv - across, 0.0).rgb;
+
+    vec3 blended = mix(center.rgb, smoothColor, weight);
+    imageStore(result, at, vec4(blended, center.a));
+}

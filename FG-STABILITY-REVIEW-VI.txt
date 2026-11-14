@@ -1,0 +1,51 @@
+REVIEW FIX FRAME GENERATION — 25/10/2026
+
+Luna thực hiện điều tra/sửa; parent review và chạy kiểm tra độc lập.
+APK: ThorNativeFG-FG-stability-test.apk (0.14-rc1)
+SHA256: 973A5B1276BED0FB435E7F5EAE3ABB4CEA507436954F93B97FC595FCDD286475
+Chưa cài đè APK hoặc đổi cấu hình/game đang chạy.
+
+User: nhấp nháy khi di chuyển. Chưa có video hoặc cảnh gameplay tái hiện.
+Snapshot log từ Luna: Eden PID7259, GSR1 1280x720->1920x1080,
+FG async_shared, policy legacy, nguồn ~30FPS, hiển thị ~30-60FPS, gap max
+33-50ms. Đây là bằng chứng nhịp không đều, không chứng minh nguyên nhân nháy.
+Đọc maps bị từ chối nên chưa xác minh installed runtime hash. Property FXAA=1
+không chứng minh FXAA đang thực thi. Không thay đổi bất cứ property nào.
+
+SỬA CÓ BẰNG CHỨNG
+1. Shader midpoint bỏ qua alpha khi xét đứng yên và luôn xuất alpha1;
+   frame thật giữ alpha nguồn. Sửa stationary test xét RGBA, lưu color RGBA.
+   GPU alpha-only 0->200 có RGB không đổi: midpoint alpha100 đúng. Lỗi này
+   chỉ giải thích flicker nếu swapchain/compositor thực sự dùng transparency;
+   không coi là root cause đã xác nhận cho game có opaque output.
+2. Default schedule đổi legacy -> bounded, vẫn cho explicit legacy override.
+   Test timestamp tăng đơn điệu, gaps32/48ms, half estimate21ms (source average
+   40ms) xác nhận legacy tích lũy thời gian tương lai, bounded giới hạn lookahead.
+   Không sửa các tham số optical flow/confidence theo suy đoán.
+
+REVIEW
+Parent bắt được regression ban đầu tạo timestamp đi lùi (i*gap xen kẽ).
+Đã loại bài đó, sửa timestamp tích lũy, xác nhận monotonic và chạy lại.
+Bài motion đổi từ ngưỡng quá lỏng sang đối chiếu current/crossfade và ground truth.
+
+KIỂM TRA ĐỘC LẬP TRÊN THOR
+GPU Adreno740: 53/53 PASS, build/fg-review-gpu.txt.
+Presentation: 33/33 PASS, build/fg-review-timing.txt.
+Vật thể hoa văn qua 7 midpoint: max RGB MAE .145 (current2.100, crossfade.874),
+max mean luma error .085 trên thang0..255.
+Checker8x8: ROI MAE .583 (current/crossfade4.667).
+Build/shader validation/signing thành công theo Luna; parent hash khớp,
+git diff --check sạch. Không kết luận chất lượng tốt hơn bản trước từ các
+motion fixtures: chúng là test bảo vệ hồi quy, không tái hiện nháy của user.
+
+CÁCH THỬ
+Lưu game, thoát hẳn giả lập, cập nhật APK, mở app rồi bật FG bằng luồng thường
+để cài runtime mới. Mở lại đúng game/cảnh chuyển động. So bật/tắt FG, giữ
+nguyên SR/FXAA và các setting khác. Nếu vẫn nháy cần clip ngắn hoặc đúng game,
+cảnh và xác nhận tắt FG có hết không. Không cần flash lại module cho sửa này.
+
+GIỚI HẠN
+Chưa xác nhận nhấp nháy gameplay đã hết; chưa kiểm visual/runtime cài mới,
+độ trễ tay cầm, nhiệt/pin hoặc synchronization validation trong game. Không
+thay đổi global settings để thử, không force-stop game, không nhận là fix hoàn tất
+triệu chứng. Bản này là candidate sửa 2 lỗi cụ thể, cần xác nhận trên cảnh lỗi.

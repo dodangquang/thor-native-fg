@@ -17,6 +17,7 @@
 #include <chrono>
 #include <algorithm>
 #include <unistd.h>
+#include <sched.h>
 #include <time.h>
 #include <cstdlib>
 #include <cstdio>
@@ -39,6 +40,19 @@ struct Swap {
  bool timing=false;uint32_t presentID=0;PresentationWindow presentation;
  struct PendingPresent{bool generated;uint64_t source;};std::unordered_map<uint32_t,PendingPresent> pendingPresents;
  SourceCadence cadence;uint64_t refreshNs=8333333,lastRealDesired=0,rateSkipped=0,budgetSkipped=0,sourceArrivalNs=0;bool scheduleBounded=false;
+ // 1 when the last finished frame actually presented two generated images.
+ uint32_t tripleMode=0;
+ // A surface can advertise more refresh cycles than the display actually
+ // consumes (compositors that present once per source frame). Generation is
+ // paused after two measurement windows prove the extra presents are dropped.
+ uint32_t wastedPresentWindows=0;bool generationBlocked=false;
+ // Refresh estimate refinement: a candidate rate must repeat before it replaces
+ // the reported cycle, so one slow window cannot flip the pacing policy.
+ uint64_t refreshCandidate=0;uint32_t refreshCandidateWindows=0;
+ // 3x policy. The driver reports60Hz on this panel even in120Hz mode, so three
+ // slots are only trusted after a measured probe proves they reach the display.
+ // tripleSetting:0=auto,1=forced on,2=forced off.
+ int tripleSetting=0;bool tripleApproved=false,tripleRejected=false,tripleProbeActive=false;uint32_t tripleProbeWindows=0;uint64_t tripleRejectedAt=0;
  VkFence workDone{};bool workPending=false;
  VkQueryPool queries{};uint32_t timestampBits=0;bool outputTimed=false;
  uint32_t costFrames=0,inputGpuSamples=0,outputGpuSamples=0;
@@ -100,7 +114,8 @@ static PresenterMode presenterMode(){
 static bool asyncRequested(){return presenterMode()!=PresenterMode::Fence;}
 static bool autoProcess(){const char* selected=std::getenv("THOR_FG_AUTO_MATCH");return selected&&strcmp(selected,"1")==0;}
 static bool enabled(){char value[PROP_VALUE_MAX]{};__system_property_get(autoProcess()?"debug.thorfg.auto":"debug.thorfg.enabled",value);return strcmp(value,"1")==0;}
-static bool srEnabled(){char value[PROP_VALUE_MAX]{};__system_property_get(autoProcess()?"debug.thorfg.auto_sr":"debug.thorfg.sr",value);return strcmp(value,"1")==0;}
+// SR is disabled: the emulator apps own upscaling now, the layer only does AA + FG.
+static bool srEnabled(){return false;}
 static bool fgEnabled(){char value[PROP_VALUE_MAX]{};__system_property_get("debug.thorfg.fg",value);return value[0]!='0';}
 #include "sr_hooks.inc"
 #include "presentation_hooks.inc"
@@ -109,19 +124,52 @@ static void reportMetrics(Swap& s,uint32_t qualityFlags,double blockingMs){
  if(seconds<1.0)return;
  timespec boot{};clock_gettime(CLOCK_BOOTTIME,&boot);uint64_t uptime=uint64_t(boot.tv_sec)*1000+boot.tv_nsec/1000000;
  auto display=s.presentation.stats(monotonicNs());
+ double sourceRate=(s.sources-s.metricsSources)/seconds,generatedRate=(s.generated-s.metricsGenerated)/seconds;
+ // Estimate the panel's real refresh from what actually reached the display, so
+ // a60Hz mode stays60Hz (2x of a30FPS source) and only a genuine120Hz mode is
+ // allowed to schedule three slots. The reported cycle seeds the estimate.
+ if(!s.tripleApproved&&display.valid&&display.samples>=8&&display.fps>10.0){
+  uint64_t estimate=display.fps>=90.0?8333333ull:(display.fps>=45.0?16666667ull:0ull);
+  if(estimate&&estimate!=s.refreshNs){
+   if(estimate==s.refreshCandidate){if(++s.refreshCandidateWindows>=2){s.refreshNs=estimate;s.refreshCandidateWindows=0;s.refreshCandidate=0;LOG("THOR_REFRESH_MEASURED refresh_ns=%llu display_fps=%.2f",(unsigned long long)s.refreshNs,display.fps);}}
+   else {s.refreshCandidate=estimate;s.refreshCandidateWindows=0;}
+  }else s.refreshCandidateWindows=0;
+ }
+ // 3x only helps on a real120Hz mode. Probe once a working2x baseline proves
+ // the panel takes at least2x the source rate, then keep three slots only if
+ // the display rate scales again; otherwise return to2x and remember it.
+ if(s.tripleSetting==0&&!s.tripleApproved&&(!s.tripleRejected||uptime-s.tripleRejectedAt>20000ull)&&display.valid&&display.samples>=8&&sourceRate>10.0&&s.cadence.interval()>=24000000ull){
+  if(!s.tripleProbeActive){if(display.fps>=1.8*sourceRate)s.tripleProbeActive=true;}
+  else if(++s.tripleProbeWindows>=4){
+   if(display.fps>=2.4*sourceRate){s.tripleApproved=true;s.refreshNs=8333333ull;LOG("THOR_TRIPLE_CONFIRMED display_fps=%.2f source_fps=%.2f",display.fps,sourceRate);}
+   else{s.tripleRejected=true;s.tripleRejectedAt=uptime;s.tripleProbeActive=false;s.refreshNs=16666667ull;s.wastedPresentWindows=0;LOG("THOR_TRIPLE_REJECTED display_fps=%.2f source_fps=%.2f",display.fps,sourceRate);}
+   s.tripleProbeWindows=0;
+  }
+ }
+ // A surface fed by another compositor can report more refresh cycles than the
+ // display actually consumes. Generating frames then only adds latency and
+ // heat, so pause generation once two measurement windows show that the extra
+ // presents never reach the display.
+ if(!s.generationBlocked&&!s.tripleProbeActive&&display.valid&&display.samples>4&&generatedRate>1.0&&sourceRate>10.0&&display.fps>10.0){
+  // Four consecutive windows: a single hitch lowers the measured display rate
+  // for one window and must not disable a working configuration.
+  if(sourceRate+generatedRate>display.fps*1.2){
+   if(++s.wastedPresentWindows>=4){s.generationBlocked=true;LOG("THOR_GENERATION_PAUSED presented=%.2f/s displayed=%.2f/s refresh_ns=%llu",sourceRate+generatedRate,display.fps,(unsigned long long)s.refreshNs);}
+  }else s.wastedPresentWindows=0;
+ }else if(!(display.valid&&display.samples>4)||sourceRate<=10.0||display.fps<=10.0)s.wastedPresentWindows=0;
  // These are incoming and generated PRESENT REQUEST rates. Neither rate is a
  // scanout measurement. Keep dimensions in the protocol so the HUD cannot
  // mislabel the current same-size filter as active super resolution.
- LOG("THOR_METRICS v=2 pid=%d swap=%llu eligible=%d in_w=%u in_h=%u out_w=%u out_h=%u source_fps=%.2f generated_fps=%.2f sources=%llu generated=%llu cuts=%llu holds=%llu flow_skips=%llu flags=%u blocking_ms=%.3f sr=%d sa=%u sr_in_w=%u sr_in_h=%u sr_presents=%llu uptime_ms=%llu display_valid=%d display_fps=%.2f display_generated_fps=%.2f display_samples=%zu gap_median_ms=%.3f gap_p95_ms=%.3f gap_max_ms=%.3f rate_skips=%llu fg_gpu_input_ms=%.3f fg_gpu_output_ms=%.3f fg_gpu_input_samples=%u fg_gpu_output_samples=%u fg_cpu_quality_wait_ms=%.3f fg_cpu_previous_wait_ms=%.3f fg_cpu_present_ms=%.3f fg_cpu_processing_ms=%.3f fg_cost_frames=%u presenter=%s fg_cpu_source_call_last_ms=%.3f fg_async_backpressure_last_ms=%.3f source_interval_ms=%.3f cadence_policy=%s flow=%s present_policy=%s budget_skips=%llu",
+ LOG("THOR_METRICS v=2 pid=%d swap=%llu eligible=%d in_w=%u in_h=%u out_w=%u out_h=%u source_fps=%.2f generated_fps=%.2f sources=%llu generated=%llu cuts=%llu holds=%llu flow_skips=%llu flags=%u blocking_ms=%.3f sr=%d sa=%u sr_in_w=%u sr_in_h=%u sr_presents=%llu uptime_ms=%llu display_valid=%d display_fps=%.2f display_generated_fps=%.2f display_samples=%zu gap_median_ms=%.3f gap_p95_ms=%.3f gap_max_ms=%.3f rate_skips=%llu fg_gpu_input_ms=%.3f fg_gpu_output_ms=%.3f fg_gpu_input_samples=%u fg_gpu_output_samples=%u fg_cpu_quality_wait_ms=%.3f fg_cpu_previous_wait_ms=%.3f fg_cpu_present_ms=%.3f fg_cpu_processing_ms=%.3f fg_cost_frames=%u presenter=%s fg_cpu_source_call_last_ms=%.3f fg_async_backpressure_last_ms=%.3f source_interval_ms=%.3f cadence_policy=%s flow=%s present_policy=%s budget_skips=%llu triple=%u generation_blocked=%d refresh_ns=%llu triple_state=%d",
   getpid(),(unsigned long long)(uintptr_t)s.handle,s.supported&&!s.disabled,
   s.extent.width,s.extent.height,s.extent.width,s.extent.height,
-  (s.sources-s.metricsSources)/seconds,(s.generated-s.metricsGenerated)/seconds,
+  sourceRate,generatedRate,
   (unsigned long long)s.sources,(unsigned long long)s.generated,
   (unsigned long long)s.cutSkipped,(unsigned long long)s.holdSkipped,(unsigned long long)s.flowSkipped,qualityFlags,blockingMs,
   s.spatialActive,uint32_t(s.spatialModel),s.spatialInput.width,s.spatialInput.height,(unsigned long long)s.spatialPresents,(unsigned long long)uptime,
   display.valid,display.fps,display.generatedFps,display.samples,display.medianGapMs,display.p95GapMs,display.maxGapMs,(unsigned long long)s.rateSkipped,
   s.inputGpuTotal/std::max(1u,s.inputGpuSamples),s.outputGpuTotal/std::max(1u,s.outputGpuSamples),s.inputGpuSamples,s.outputGpuSamples,
-  s.qualityWaitTotal/std::max(1u,s.costFrames),s.previousWaitTotal/std::max(1u,s.costFrames),s.presentTotal/std::max(1u,s.costFrames),s.callTotal/std::max(1u,s.costFrames),s.costFrames,s.asyncFrame?(s.sharedFrame?"async_shared":"async_queue"):"fence",s.lastSourceCallMs.load(),s.lastBackpressureMs.load(),s.cadence.interval()/1e6,s.cadence.legacy?"legacy":"trimmed_mean",s.engine?(s.engine->cooperativeFlow?"cooperative":"serial"):"none",s.scheduleBounded?"bounded":"legacy",(unsigned long long)s.budgetSkipped);
+  s.qualityWaitTotal/std::max(1u,s.costFrames),s.previousWaitTotal/std::max(1u,s.costFrames),s.presentTotal/std::max(1u,s.costFrames),s.callTotal/std::max(1u,s.costFrames),s.costFrames,s.asyncFrame?(s.sharedFrame?"async_shared":"async_queue"):"fence",s.lastSourceCallMs.load(),s.lastBackpressureMs.load(),s.cadence.interval()/1e6,s.cadence.legacy?"legacy":"trimmed_mean",s.engine?(s.engine->cooperativeFlow?"cooperative":"serial"):"none",s.scheduleBounded?"bounded":"legacy",(unsigned long long)s.budgetSkipped,s.tripleMode,s.generationBlocked?1:0,(unsigned long long)s.refreshNs,s.tripleApproved?1:(s.tripleRejected?3:(s.tripleProbeActive?2:0)));
  // liblog truncates formatted messages at1023bytes on this Android build.
  // Keep optional frame-age diagnostics separate from the HUD protocol.
  LOG("THOR_FRAME_AGE v=1 pid=%d swap=%llu uptime_ms=%llu "
@@ -209,20 +257,33 @@ static VKAPI_ATTR VkResult VKAPI_CALL createSwapchain(VkDevice device,const VkSw
  auto changed=*ci;VkImageUsageFlags transfers=VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
  bool ok=capsFn&&capsFn(d->physical,ci->surface,&caps)==VK_SUCCESS&&(caps.supportedUsageFlags&transfers)==transfers;
  ok=ok && (fp.optimalTilingFeatures&VK_FORMAT_FEATURE_BLIT_SRC_BIT)&&(fp.optimalTilingFeatures&VK_FORMAT_FEATURE_BLIT_DST_BIT)&&(rp.optimalTilingFeatures&VK_FORMAT_FEATURE_BLIT_SRC_BIT)&&(rp.optimalTilingFeatures&VK_FORMAT_FEATURE_BLIT_DST_BIT);
- ok=ok && (ci->imageFormat==VK_FORMAT_R8G8B8A8_UNORM||ci->imageFormat==VK_FORMAT_B8G8R8A8_UNORM)&&ci->imageArrayLayers==1&&ci->imageColorSpace==VK_COLOR_SPACE_SRGB_NONLINEAR_KHR&&!(ci->flags&VK_SWAPCHAIN_CREATE_PROTECTED_BIT_KHR)&&ci->imageExtent.width<=4096&&ci->imageExtent.height<=4096;
- // Only FIFO is supported by the simple proof-of-concept presenter.
- ok=ok && ci->presentMode==VK_PRESENT_MODE_FIFO_KHR;
+ ok=ok && (ci->imageFormat==VK_FORMAT_R8G8B8A8_UNORM||ci->imageFormat==VK_FORMAT_B8G8R8A8_UNORM||ci->imageFormat==VK_FORMAT_R8G8B8A8_SRGB||ci->imageFormat==VK_FORMAT_B8G8R8A8_SRGB)&&ci->imageArrayLayers==1&&ci->imageColorSpace==VK_COLOR_SPACE_SRGB_NONLINEAR_KHR&&!(ci->flags&VK_SWAPCHAIN_CREATE_PROTECTED_BIT_KHR)&&ci->imageExtent.width<=4096&&ci->imageExtent.height<=4096;
+ // The layer presents through its own submission path, so the game's chosen
+ // mode does not constrain our queue work. Games overwhelmingly request
+ // MAILBOX (latency) or FIFO (vsync); both are safe to intercept. IMMEDIATE
+ // is deliberately excluded: with no vsync between presents the layer's
+ // generated/real pair would collapse onto the same compositor slot.
+ ok=ok && (ci->presentMode==VK_PRESENT_MODE_FIFO_KHR||ci->presentMode==VK_PRESENT_MODE_MAILBOX_KHR);
  LOG("SWAPCHAIN_INPUT format=%u colorspace=%u mode=%u usage=%u flags=%u layers=%u requested_images=%u surface_min=%u surface_max=%u surface_usage=%u format_features=%u working_features=%u compatible=%d",ci->imageFormat,ci->imageColorSpace,ci->presentMode,ci->imageUsage,ci->flags,ci->imageArrayLayers,ci->minImageCount,caps.minImageCount,caps.maxImageCount,caps.supportedUsageFlags,fp.optimalTilingFeatures,rp.optimalTilingFeatures,ok);
- if(ok){changed.imageUsage|=transfers;changed.minImageCount=std::max(changed.minImageCount,caps.minImageCount+1);if(caps.maxImageCount&&changed.minImageCount>caps.maxImageCount)ok=false;}
+ // The layer writes generated frames into a spare swapchain image, so it
+ // must not run out of idle images while the game keeps several busy.
+ // min+3 keeps two spares beyond the game's own ring buffer; three spares
+ // measured ~0% acquire misses on ZZZ (min+2 still missed ~11%).
+ if(ok){changed.imageUsage|=transfers;changed.minImageCount=std::max(changed.minImageCount,std::max(caps.minImageCount+3u,5u));if(caps.maxImageCount&&changed.minImageCount>caps.maxImageCount)ok=false;}
  auto r=d->a.CreateSwapchainKHR(device,ok?&changed:ci,alloc,out);
- if(r!=VK_SUCCESS&&ok){ok=false;r=d->a.CreateSwapchainKHR(device,ci,alloc,out);}
+ if(r!=VK_SUCCESS&&ok){ok=false;LOG("THOR_SWAPCHAIN_FALLBACK bump failed result=%d used original %u images",r,ci->minImageCount);r=d->a.CreateSwapchainKHR(device,ci,alloc,out);}
+ if(r==VK_SUCCESS)LOG("THOR_SWAPCHAIN_CREATE result=VK_SUCCESS %s minImages=%u",ok?"bumped":"original",ok?changed.minImageCount:ci->minImageCount);
  if(r==VK_SUCCESS){auto s=std::make_shared<Swap>();s->handle=*out;s->extent=ci->imageExtent;s->format=ci->imageFormat;s->supported=ok;
  uint32_t n=0;d->a.GetSwapchainImagesKHR(device,*out,&n,nullptr);s->images.resize(n);d->a.GetSwapchainImagesKHR(device,*out,&n,s->images.data());
  s->spatialFrames.resize(n);
  s->spatialCompatible=ci->compositeAlpha==VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR||ci->compositeAlpha==VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
  s->timing=d->pastTiming!=nullptr;
- if(d->refreshTiming){VkRefreshCycleDurationGOOGLE cycle{};if(d->refreshTiming(device,*out,&cycle)==VK_SUCCESS&&cycle.refreshDuration)s->refreshNs=cycle.refreshDuration>12000000ull?cycle.refreshDuration/2:cycle.refreshDuration;}
- std::lock_guard<std::mutex> l(d->mutex);d->swaps[*out]=s;LOG("SWAPCHAIN %ux%u images=%u eligible=%d active=%d composite_alpha=%u",s->extent.width,s->extent.height,n,ok,enabled(),ci->compositeAlpha);}return r;
+ // The reported refresh cycle is the display's current mode:16.7ms on a60Hz
+ // mode,8.3ms on120Hz. Halving it made a genuine60Hz mode look like120Hz, so
+ // the layer generated frames the display never showed. Only accept plausible
+ // values and refine them from the measured display rate later.
+ if(d->refreshTiming){VkRefreshCycleDurationGOOGLE cycle{};if(d->refreshTiming(device,*out,&cycle)==VK_SUCCESS&&cycle.refreshDuration>=4000000ull&&cycle.refreshDuration<=34000000ull)s->refreshNs=cycle.refreshDuration;}
+ std::lock_guard<std::mutex> l(d->mutex);d->swaps[*out]=s;LOG("SWAPCHAIN %ux%u images=%u eligible=%d active=%d composite_alpha=%u refresh_ns=%llu",s->extent.width,s->extent.height,n,ok,enabled(),ci->compositeAlpha,(unsigned long long)s->refreshNs);}return r;
 }
 static VKAPI_ATTR void VKAPI_CALL destroySwapchain(VkDevice device,VkSwapchainKHR handle,const VkAllocationCallbacks* alloc){auto d=deviceFor(device);if(!d)return;std::shared_ptr<Swap> swap;{std::lock_guard<std::mutex> lock(d->mutex);auto i=d->swaps.find(handle);if(i!=d->swaps.end())swap=i->second;}if(swap){std::lock_guard<std::mutex> lock(swap->producerMutex);swap->worker.stop();releaseSwap(*d,*swap);std::lock_guard<std::mutex> metadata(d->mutex);d->swaps.erase(handle);}d->a.DestroySwapchainKHR(device,handle,alloc);}
 static bool prepare(Device& d,Swap& s,uint32_t family){
@@ -240,6 +301,7 @@ static bool prepare(Device& d,Swap& s,uint32_t family){
   VkSemaphoreCreateInfo si{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};s.ready.resize(s.images.size());for(auto& sem:s.ready)requireVk(a.CreateSemaphore(d.handle,&si,nullptr,&sem),"CreatePresentSemaphore");
   char flowMode[PROP_VALUE_MAX]{},compare[PROP_VALUE_MAX]{};__system_property_get("debug.thorfg.flow",flowMode);__system_property_get("debug.thorfg.flow_compare",compare);bool cooperative=strcmp(flowMode,"serial")!=0;
   s.engine=std::make_unique<Engine>();s.engine->init(a,d.memory,s.extent,s.extent,cooperative);
+ {char aaProp[PROP_VALUE_MAX]{};__system_property_get("persist.thorfg.smaa",aaProp);bool wantSmaa=aaProp[0]!='0';__system_property_get("persist.thorfg.fxaa",aaProp);bool wantFxaa=aaProp[0]=='1';s.engine->configureAA(wantSmaa,wantFxaa);if(wantSmaa||wantFxaa)LOG("THOR_AA requested smaa=%d fxaa=%d",wantSmaa,wantFxaa);}
   if(compare[0]=='1'){s.flowComparison=std::make_unique<FlowComparison>();s.flowComparison->init(a,d.memory,s.extent);}
   // Pipeline compilation/allocation is layer work, not the game's cadence.
   // Observe fresh arrivals afterward while retaining the real source timestamp
@@ -264,8 +326,9 @@ static VkResult waitLayerWork(Device& d,Swap& s){
  if(result==VK_SUCCESS){s.workPending=false;if(s.outputTimed)collectGpuTime(d,s,2,true);s.outputTimed=false;}
  return result;
 }
-static VkResult finishPreparedFrame(std::shared_ptr<Device> d,std::shared_ptr<Swap> swap,VkQueue queue,uint32_t original,std::chrono::steady_clock::time_point start,double previousWaitMs){
- auto& a=d->a;auto& s=*swap;uint32_t extra=~0u;double qualityWaitMs=0,presentMs=0;
+static VkResult finishPreparedFrame(std::shared_ptr<Device> d,std::shared_ptr<Swap> swap,VkQueue queue,uint32_t original,std::chrono::steady_clock::time_point start,double previousWaitMs,bool triple){
+ auto& a=d->a;auto& s=*swap;uint32_t extra=~0u,extra2=~0u;double qualityWaitMs=0,presentMs=0;
+ s.tripleMode=triple?1u:0u;
  VkPresentInfoKHR base{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};base.swapchainCount=1;base.pSwapchains=&s.handle;base.pImageIndices=&original;const auto* info=&base;
  VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};bi.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
  VkResult waited=VK_SUCCESS,reset=VK_SUCCESS,br=VK_SUCCESS,er=VK_SUCCESS,sr=VK_SUCCESS;
@@ -276,32 +339,63 @@ static VkResult finishPreparedFrame(std::shared_ptr<Device> d,std::shared_ptr<Sw
  if(quality.reasons&QUALITY_CUT)++s.cutSkipped;
  if(quality.reasons&QUALITY_HOLDOFF)++s.holdSkipped;
  if(quality.reasons&(QUALITY_LOW_FLOW|QUALITY_FAST_MOTION))++s.flowSkipped;
- uint64_t generatedTime=0,realTime=0;bool budgetRejected=false;
+ uint64_t generatedTime=0,generated2Time=0,realTime=0;bool budgetRejected=false;
  char pacing[PROP_VALUE_MAX]{};__system_property_get("debug.thorfg.pacing",pacing);
  if(pair&&s.timing&&pacing[0]!='0'){
-  auto plan=planPairPresentation(monotonicNs(),s.cadence.interval()/2,s.refreshNs,s.lastRealDesired,s.scheduleBounded,s.sourceArrivalNs);
-  generatedTime=plan.generated;realTime=plan.real;
-  if(!plan.generate){pair=false;budgetRejected=true;++s.budgetSkipped;}
+  if(triple){
+   auto plan=planTriplePresentation(monotonicNs(),s.cadence.interval()/3,s.refreshNs,s.lastRealDesired,s.scheduleBounded,s.sourceArrivalNs);
+   generatedTime=plan.generated1;generated2Time=plan.generated2;realTime=plan.real;
+   if(!plan.generate){pair=false;triple=false;s.tripleMode=0;budgetRejected=true;++s.budgetSkipped;}
+  }else{
+   auto plan=planPairPresentation(monotonicNs(),s.cadence.interval()/2,s.refreshNs,s.lastRealDesired,s.scheduleBounded,s.sourceArrivalNs);
+   generatedTime=plan.generated;realTime=plan.real;
+   if(!plan.generate){pair=false;budgetRejected=true;++s.budgetSkipped;}
+  }
  }
  // Acquire only after the GPU has accepted the pair. A rejected pair must
  // neither occupy a presentation slot with a duplicate nor leak an acquired
  // spare. The original game's image is preserved exactly on this path.
  if(pair){
-  a.ResetFences(d->handle,1,&s.acquired);VkResult ar;
-  {std::lock_guard<std::mutex> lock(s.wsiMutex);ar=a.AcquireNextImageKHR(d->handle,s.handle,0,VK_NULL_HANDLE,s.acquired,&extra);}
-  if(ar!=VK_SUCCESS&&ar!=VK_SUBOPTIMAL_KHR){++s.skipped;pair=false;}
-  else {auto wr=a.WaitForFences(d->handle,1,&s.acquired,VK_TRUE,UINT64_MAX);if(wr!=VK_SUCCESS)return wr;}
+  auto acquireSpare=[&](uint32_t& index)->VkResult{
+   a.ResetFences(d->handle,1,&s.acquired);VkResult ar=VK_ERROR_OUT_OF_DATE_KHR;
+  // A spare image can be transiently busy even with a few extra images:
+  // SurfaceFlinger still holds the last presented buffers and the game ring
+  // may have several in flight, so the single immediate acquire returns
+  // NOT_READY. Tight bounded retries convert most of those into a real
+  // generated frame without ever blocking the caller for long (the worst
+  // case is ~1.2ms and only on frames that would otherwise be skipped).
+   for(int attempt=0;attempt<8;attempt++){
+    {std::lock_guard<std::mutex> lock(s.wsiMutex);ar=a.AcquireNextImageKHR(d->handle,s.handle,0,VK_NULL_HANDLE,s.acquired,&index);}
+    if(ar==VK_SUCCESS||ar==VK_SUBOPTIMAL_KHR)break;
+    if(ar!=VK_NOT_READY&&ar!=VK_ERROR_OUT_OF_DATE_KHR)break;
+    if(attempt<3)sched_yield();else usleep(150);
+   }
+   if(ar==VK_SUCCESS||ar==VK_SUBOPTIMAL_KHR){auto wr=a.WaitForFences(d->handle,1,&s.acquired,VK_TRUE,UINT64_MAX);if(wr!=VK_SUCCESS)return wr;}
+   return ar;
+  };
+  auto ar=acquireSpare(extra);
+  if(ar!=VK_SUCCESS&&ar!=VK_SUBOPTIMAL_KHR){if((s.skipped&63)==0)LOG("THOR_ACQUIRE spare miss result=%d",ar);++s.skipped;pair=false;}
+  else if(triple){
+   // The second spare is optional: if SurfaceFlinger holds it, this frame
+   // falls back to the 2x presentation instead of dropping both frames.
+   auto second=acquireSpare(extra2);
+   if(second!=VK_SUCCESS&&second!=VK_SUBOPTIMAL_KHR){if((s.skipped&63)==0)LOG("THOR_ACQUIRE second spare miss result=%d",second);triple=false;s.tripleMode=0;}
+  }
  }
  auto counters=[&](){double ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();++s.costFrames;s.qualityWaitTotal+=qualityWaitMs;s.previousWaitTotal+=previousWaitMs;s.presentTotal+=presentMs;s.callTotal+=ms;double blocking=s.asyncFrame?s.lastSourceCallMs.load():ms;reportMetrics(s,quality.reasons,blocking);if(s.sources%60==0){LOG("COUNTERS sources=%llu generated_present_requests=%llu spare_skips=%llu cut_skips=%llu hold_skips=%llu flow_skips=%llu last_quality_flags=%u last_blocking_ms=%.3f (NOT displayed FPS)",(unsigned long long)s.sources,(unsigned long long)s.generated,(unsigned long long)s.skipped,(unsigned long long)s.cutSkipped,(unsigned long long)s.holdSkipped,(unsigned long long)s.flowSkipped,quality.reasons,blocking);}};
- if(!pair){s.lastRealDesired=budgetRejected?realTime:0;VkPresentInfoKHR real=*info;real.waitSemaphoreCount=0;real.pWaitSemaphores=nullptr;auto presentStart=std::chrono::steady_clock::now();auto result=timedPresent(*d,s,queue,&real,false,s.lastRealDesired);presentMs=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-presentStart).count();counters();return result;}
+ if(!pair){s.tripleMode=0;s.lastRealDesired=budgetRejected?realTime:0;VkPresentInfoKHR real=*info;real.waitSemaphoreCount=0;real.pWaitSemaphores=nullptr;auto presentStart=std::chrono::steady_clock::now();auto result=timedPresent(*d,s,queue,&real,false,s.lastRealDesired);presentMs=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-presentStart).count();counters();return result;}
  reset=a.ResetCommandPool(d->handle,s.pool,0);if(reset!=VK_SUCCESS)return reset;br=a.BeginCommandBuffer(s.cmd,&bi);if(br!=VK_SUCCESS)return br;
  if(s.queries)a.CmdWriteTimestamp(s.cmd,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,s.queries,2);
  auto output=[&](VkImage from,uint32_t index,VkImageLayout oldLayout){s.engine->barrier(s.cmd,s.images[index],oldLayout,VK_IMAGE_LAYOUT_GENERAL,0,VK_ACCESS_TRANSFER_WRITE_BIT);s.engine->blit(s.cmd,from,s.extent,s.images[index],s.extent);s.engine->barrier(s.cmd,s.images[index],VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,VK_ACCESS_TRANSFER_WRITE_BIT,0);};
- output(s.engine->upCurrent.image,original,VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);if(pair)output(s.engine->upMid.image,extra,VK_IMAGE_LAYOUT_UNDEFINED);
+ output(s.engine->realOutput(),original,VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);if(pair)output(s.engine->generatedOutput(),extra,VK_IMAGE_LAYOUT_UNDEFINED);if(pair&&triple)output(s.engine->upMid2.image,extra2,VK_IMAGE_LAYOUT_UNDEFINED);
  if(s.queries)a.CmdWriteTimestamp(s.cmd,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,s.queries,3);
  er=a.EndCommandBuffer(s.cmd);if(er!=VK_SUCCESS)return er;
- VkSemaphore signals[]={s.ready[original],s.ready[extra]};
- VkSubmitInfo sub{VK_STRUCTURE_TYPE_SUBMIT_INFO};sub.commandBufferCount=1;sub.pCommandBuffers=&s.cmd;sub.signalSemaphoreCount=2;sub.pSignalSemaphores=signals;
+ VkSemaphore signals[3]={s.ready[original],s.ready[extra],VK_NULL_HANDLE};
+ uint32_t signalCount=2;
+ // Only touch s.ready[extra2] when a second spare was actually acquired: the
+ // pair path leaves extra2 at ~0u and indexing it reads past the array.
+ if(pair&&triple){signals[2]=s.ready[extra2];signalCount=3;}
+ VkSubmitInfo sub{VK_STRUCTURE_TYPE_SUBMIT_INFO};sub.commandBufferCount=1;sub.pCommandBuffers=&s.cmd;sub.signalSemaphoreCount=signalCount;sub.pSignalSemaphores=signals;
  reset=a.ResetFences(d->handle,1,&s.workDone);if(reset!=VK_SUCCESS)return reset;
  sr=layerSubmit(*d,queue,1,&sub,s.workDone);if(sr!=VK_SUCCESS)return sr;s.workPending=true;s.outputTimed=s.queries!=VK_NULL_HANDLE;
  // The preflight may reject before acquiring a spare. If it accepts, later
@@ -309,13 +403,21 @@ static VkResult finishPreparedFrame(std::shared_ptr<Device> d,std::shared_ptr<Sw
  // after the output submission: counting acquisition/recording time as driver
  // lead can make both queued frames target the same physical display slot.
  if(s.timing&&pacing[0]!='0'){
-  auto plan=planPairPresentation(monotonicNs(),s.cadence.interval()/2,s.refreshNs,s.lastRealDesired,false,s.sourceArrivalNs);
-  generatedTime=plan.generated;realTime=plan.real;
+  if(pair&&triple){
+   auto plan=planTriplePresentation(monotonicNs(),s.cadence.interval()/3,s.refreshNs,s.lastRealDesired,false,s.sourceArrivalNs);
+   generatedTime=plan.generated1;generated2Time=plan.generated2;realTime=plan.real;
+  }else{
+   auto plan=planPairPresentation(monotonicNs(),s.cadence.interval()/2,s.refreshNs,s.lastRealDesired,false,s.sourceArrivalNs);
+   generatedTime=plan.generated;realTime=plan.real;
+  }
  }
  s.lastRealDesired=realTime;
  VkResult generatedResult=VK_SUCCESS;
  auto presentStart=std::chrono::steady_clock::now();
  if(pair){VkPresentInfoKHR gen{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};gen.waitSemaphoreCount=1;gen.pWaitSemaphores=&s.ready[extra];gen.swapchainCount=1;gen.pSwapchains=&s.handle;gen.pImageIndices=&extra;generatedResult=timedPresent(*d,s,queue,&gen,true,generatedTime);if(generatedResult==VK_SUCCESS||generatedResult==VK_SUBOPTIMAL_KHR)++s.generated;}
+ if(pair&&triple){
+  VkPresentInfoKHR second{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};second.waitSemaphoreCount=1;second.pWaitSemaphores=&s.ready[extra2];second.swapchainCount=1;second.pSwapchains=&s.handle;second.pImageIndices=&extra2;auto secondResult=timedPresent(*d,s,queue,&second,true,generated2Time);if(secondResult==VK_SUCCESS||secondResult==VK_SUBOPTIMAL_KHR)++s.generated;else if(generatedResult==VK_SUCCESS)generatedResult=secondResult;
+ }
  VkPresentInfoKHR real=*info;real.waitSemaphoreCount=1;real.pWaitSemaphores=&s.ready[original];auto r=timedPresent(*d,s,queue,&real,false,realTime);
  presentMs=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-presentStart).count();
  counters();
@@ -369,10 +471,10 @@ static VKAPI_ATTR VkResult VKAPI_CALL present(VkQueue queue,const VkPresentInfoK
  }
  // Observe an initial native cadence without FG work. Never halve a game's
  // original120FPS just to report60+60 on a120Hz panel.
- if(!s.cadence.canDouble(s.refreshNs)){
-  if(s.cadence.ready())++s.rateSkipped;
+ if(!s.cadence.canDouble(s.refreshNs)||s.generationBlocked){
+  if(!s.generationBlocked&&s.cadence.ready())++s.rateSkipped;
   if(s.engine)s.engine->hasHistory=false;s.lastRealDesired=0;
-  auto result=timedPresent(*d,s,queue,info,false);reportMetrics(s,s.cadence.ready()?32u:QUALITY_WARMUP,0);return result;
+  auto result=timedPresent(*d,s,queue,info,false);reportMetrics(s,s.generationBlocked?128u:(s.cadence.ready()?32u:QUALITY_WARMUP),0);return result;
  }
  if(!s.supported||s.disabled||!prepare(*d,s,q.family)){auto result=layerPresent(*d,queue,info);reportMetrics(s,0,0);return result;}
  bool asynchronous=asyncRequested()&&((d->privateQueue&&d->privateFamily==q.family)||d->sharedPresenter);
@@ -393,7 +495,16 @@ static VKAPI_ATTR VkResult VKAPI_CALL present(VkQueue queue,const VkPresentInfoK
  auto br=a.BeginCommandBuffer(s.cmd,&bi);if(br!=VK_SUCCESS)return br;
  if(s.queries){a.CmdResetQueryPool(s.cmd,s.queries,0,4);a.CmdWriteTimestamp(s.cmd,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,s.queries,0);}
  char flowMode[PROP_VALUE_MAX]{};__system_property_get("debug.thorfg.flow",flowMode);s.engine->cooperativeFlow=strcmp(flowMode,"serial")!=0;
- bool hadHistory=s.engine->hasHistory;s.engine->record(s.cmd,s.images[original],VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,false);
+ // 3x is opt-in: it needs three display slots per source frame, so it only
+ // engages when the measured cadence actually fits them.
+ char tripleMode[PROP_VALUE_MAX]{};__system_property_get("debug.thorfg.triple",tripleMode);
+ s.tripleSetting=tripleMode[0]=='1'?1:(tripleMode[0]=='0'?2:0);
+ // Three slots need a third of the source interval to still be a display slot.
+ bool eligible3=s.cadence.interval()>=24000000ull;
+ bool triple=eligible3&&(s.tripleSetting==1||(s.tripleSetting==0&&(s.tripleApproved||s.tripleProbeActive)));
+ bool hadHistory=s.engine->hasHistory;
+ if(triple){float phases[2]={1.0f/3.0f,2.0f/3.0f};s.engine->recordMulti(s.cmd,s.images[original],VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,false,nullptr,phases,2);}
+ else s.engine->record(s.cmd,s.images[original],VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,false);
  s.flowComparePending=s.flowComparison!=nullptr;if(s.flowComparePending)s.flowComparison->record(s.cmd,*s.engine,s.images[original],VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,hadHistory);
  if(s.queries)a.CmdWriteTimestamp(s.cmd,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,s.queries,1);
  auto er=a.EndCommandBuffer(s.cmd);if(er!=VK_SUCCESS)return er;
@@ -404,18 +515,18 @@ static VKAPI_ATTR VkResult VKAPI_CALL present(VkQueue queue,const VkPresentInfoK
  if(asynchronous){
   // Only owned handles/scalars enter the job. No application arrays, pResults,
   // pNext chains or stack pointers outlive vkQueuePresentKHR.
-  try{s.worker.submit([d,swap,queue,original,start,previousWaitMs]() noexcept {
-   try{swap->deferredResult=finishPreparedFrame(d,swap,queue,original,start,previousWaitMs);}
+  try{s.worker.submit([d,swap,queue,original,start,previousWaitMs,triple]() noexcept {
+   try{swap->deferredResult=finishPreparedFrame(d,swap,queue,original,start,previousWaitMs,triple);}
    catch(const std::exception& error){LOG("ASYNC_ERROR %s",error.what());swap->deferredResult=VK_ERROR_INITIALIZATION_FAILED;}
    catch(...){LOG("ASYNC_ERROR unknown exception");swap->deferredResult=VK_ERROR_INITIALIZATION_FAILED;}
-  });}catch(const std::exception& error){LOG("ASYNC_FALLBACK worker unavailable: %s",error.what());s.asyncFrame=false;auto result=finishPreparedFrame(d,swap,queue,original,start,previousWaitMs);if(info->pResults)info->pResults[0]=result;return result;}
+  });}catch(const std::exception& error){LOG("ASYNC_FALLBACK worker unavailable: %s",error.what());s.asyncFrame=false;auto result=finishPreparedFrame(d,swap,queue,original,start,previousWaitMs,triple);if(info->pResults)info->pResults[0]=result;return result;}
   // A previous asynchronous presentation's advisory status belongs to this
   // API, not vkAcquireNextImageKHR. Eden recreates on acquire SUBOPTIMAL but
   // correctly tolerates presentation SUBOPTIMAL (e.g. Android preTransform).
   auto result=deferred==VK_SUBOPTIMAL_KHR?VK_SUBOPTIMAL_KHR:VK_SUCCESS;
   if(info->pResults)info->pResults[0]=result;return result;
  }
- auto result=finishPreparedFrame(d,swap,queue,original,start,previousWaitMs);if(info->pResults)info->pResults[0]=result;return result;
+ auto result=finishPreparedFrame(d,swap,queue,original,start,previousWaitMs,triple);if(info->pResults)info->pResults[0]=result;return result;
 }
 static std::shared_ptr<Swap> findSwap(Device& d,VkSwapchainKHR handle){std::lock_guard<std::mutex> lock(d.mutex);auto found=d.swaps.find(handle);return found==d.swaps.end()?nullptr:found->second;}
 static VKAPI_ATTR VkResult VKAPI_CALL acquireNext(VkDevice device,VkSwapchainKHR handle,uint64_t timeout,VkSemaphore semaphore,VkFence fence,uint32_t* index){

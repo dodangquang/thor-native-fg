@@ -4,32 +4,51 @@ layout(local_size_x=8,local_size_y=8) in;
 layout(binding=0) uniform sampler2D prevFrame;
 layout(binding=1) uniform sampler2D currFrame;
 layout(binding=2,rgba32f) uniform writeonly image2D flowImage;
+layout(binding=4,rgba16f) uniform writeonly image2D costImage;
 #define THOR_QUALITY_BINDING 3
 #include "quality.glsl"
 layout(push_constant) uniform Params { ivec2 inputSize; ivec2 gridSize; float phase; int history; } p;
+// Serial reference for shaders/flow.comp: fine [-4,4], coarse [-12,12] step 3,
+// refine [-1,1] around the coarse winner, first-minimum in y/x order.
+#define COARSE_STEP 3
+#define REFINE_MARGIN 0.8
+#define SEARCH_LIMIT 12.5
 float delta(vec3 a, vec3 b) { return dot(abs(a-b),vec3(0.299,0.587,0.114)); }
 vec3 readFrame(bool reverse, vec2 uv) { return reverse ? textureLod(currFrame,uv,0).rgb : textureLod(prevFrame,uv,0).rgb; }
 vec3 target(bool reverse, vec2 uv) { return reverse ? textureLod(prevFrame,uv,0).rgb : textureLod(currFrame,uv,0).rgb; }
+float cost(bool reverse,vec2 center,vec2 fullGrid,ivec2 o){
+  vec2 offset=vec2(o)/fullGrid; float c=0;
+  for(int j=-3;j<=3;j+=2) for(int i=-3;i<=3;i+=2) {
+    vec2 uv=center+vec2(i,j)/fullGrid;
+    c+=delta(readFrame(reverse,uv),target(reverse,uv+offset));
+  }
+  return c/16.0 + 0.00003*float(o.x*o.x+o.y*o.y);
+}
 vec3 search(bool reverse,ivec2 block) {
   vec2 fullGrid=vec2(p.gridSize*8); vec2 center=(vec2(block*8)+4.0)/fullGrid;
-  float best=100.0; vec2 chosen=vec2(0);
+  float fine=100.0; ivec2 fineAt=ivec2(0);
   for(int y=-4;y<=4;y++) for(int x=-4;x<=4;x++) {
-    vec2 offset=vec2(x,y)/fullGrid; float cost=0;
-    for(int j=-3;j<=3;j+=2) for(int i=-3;i<=3;i+=2) {
-      vec2 uv=center+vec2(i,j)/fullGrid;
-      cost+=delta(readFrame(reverse,uv),target(reverse,uv+offset));
-    }
-    cost=cost/16.0 + 0.00003*float(x*x+y*y);
-    if(cost<best) { best=cost;chosen=vec2(x,y); }
+    float c=cost(reverse,center,fullGrid,ivec2(x,y)); if(c<fine){fine=c;fineAt=ivec2(x,y);}
   }
-  return vec3(chosen/fullGrid,best);
+  float coarse=100.0; ivec2 coarseAt=ivec2(0);
+  for(int y=-4;y<=4;y++) for(int x=-4;x<=4;x++) {
+    ivec2 o=ivec2(x,y)*COARSE_STEP; float c=cost(reverse,center,fullGrid,o); if(c<coarse){coarse=c;coarseAt=o;}
+  }
+  float refined=100.0; ivec2 refinedAt=coarseAt;
+  for(int y=-1;y<=1;y++) for(int x=-1;x<=1;x++) {
+    ivec2 o=coarseAt+ivec2(x,y); float c=cost(reverse,center,fullGrid,o); if(c<refined){refined=c;refinedAt=o;}
+  }
+  bool useRefined=refined<fine*REFINE_MARGIN;
+  return vec3(vec2(useRefined?refinedAt:fineAt)/fullGrid,useRefined?refined:fine);
 }
 void main(){
   ivec2 at=ivec2(gl_GlobalInvocationID.xy); if(any(greaterThanEqual(at,p.gridSize)))return;
   vec3 f=search(false,at),b=search(true,at);
   imageStore(flowImage,at,vec4(f.xy,b.xy));
+  imageStore(costImage,at,vec4(f.z,b.z,0.0,0.0));
   atomicAdd(stats.valid,(f.z<0.075 && b.z<0.075)?1u:0u);
   vec2 scale=vec2(p.gridSize*8);
-  bool edge=any(greaterThanEqual(abs(f.xy*scale),vec2(3.5)))||any(greaterThanEqual(abs(b.xy*scale),vec2(3.5)));
+  atomicAdd(stats.reliable,(f.z<0.015&&b.z<0.015&&length((f.xy+b.xy)*scale)<1.5)?1u:0u);
+  bool edge=any(greaterThanEqual(abs(f.xy*scale),vec2(SEARCH_LIMIT)))||any(greaterThanEqual(abs(b.xy*scale),vec2(SEARCH_LIMIT)));
   atomicAdd(stats.boundary,edge?1u:0u);
 }

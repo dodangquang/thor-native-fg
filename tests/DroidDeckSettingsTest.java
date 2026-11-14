@@ -37,6 +37,19 @@ public final class DroidDeckSettingsTest {
         fails(()->DroidDeckSettings.apply("<map><int name='upscaler' value='1'/><int name='upscaler' value='2'/></map>",f),"reject duplicates");
         fails(()->DroidDeckSettings.apply("<!DOCTYPE map [<!ENTITY x SYSTEM 'file:///not-read'>]><map/>",f),"reject external entity");
         fails(()->DroidDeckSettings.apply("<wrong/>",f),"reject wrong root");
+        // DroidDeck 0.6.0 shape: the upscaler enum now has named modes (linear is1,
+        // GSR quality is8) and frame generation defaults to off with multiplier and
+        // target keys. The three owned keys keep their types, so the preset must
+        // still apply, stay idempotent, and restore the user's original upscaler.
+        String s6="<map><int name='upscaler' value='8'/><int name='upscaleSharpness' value='50'/><string name='screenEffects'>{&quot;cas&quot;:false,&quot;fxaa&quot;:false}</string><string name='addedLaunch:/storage/emulated/0/Games/Pc Games/Minecraft Dungeons II'>-d3d11</string><string name='gameTextureFiltering'>{&quot;2921179835&quot;:{&quot;anisotropy&quot;:2}}</string><long name='addedAppId:/storage/emulated/0/Games/Pc Games/Minecraft Dungeons II' value='2921179835'/><string name='androidDriver'>Mesa_Turnip_v26.3.0-20261013-r2</string><string name='gpuDriverMode'>manual</string><boolean name='lowLatencyTouch' value='true'/></map>";
+        String f6="<map><string name='engine'>off</string><int name='multiplier' value='2'/><int name='target' value='0'/></map>";
+        DroidDeckSettings.Pair p6=DroidDeckSettings.apply(s6,f6);
+        check(DroidDeckSettings.active(p6.session,p6.fg),"0.6.0 preset active");
+        check(same(s6,p6.session,"upscaleSharpness")&&same(s6,p6.session,"androidDriver")&&same(s6,p6.session,"gameTextureFiltering"),"0.6.0 keeps upscaler sharpness, driver and texture filtering");
+        check(same(f6,p6.fg,"multiplier")&&same(f6,p6.fg,"target"),"0.6.0 keeps FG multiplier and target");
+        DroidDeckSettings.Pair back6=DroidDeckSettings.restore(s6,f6,p6.session,p6.fg);
+        check(same(s6,back6.session,"upscaler")&&same(f6,back6.fg,"engine"),"0.6.0 restore returns the user's upscaler");
+        check(!DroidDeckSettings.active(back6.session,back6.fg),"0.6.0 restored preset is inactive");
         System.out.println("DROID_PRESET_RESULT checks="+checks+" failures=0");
     }
 }

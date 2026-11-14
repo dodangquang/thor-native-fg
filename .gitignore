@@ -9,3 +9,13 @@
 __pycache__/
 **/__pycache__/
 *.pyc
+/private/
+/toolchain/
+/.claude/
+assets/thorfg-license.json.bak
+/keys/
+.abacusai/
+.p0-baseline/
+codex-mem-install/
+shaders/*.spv.hpp
+*.spv

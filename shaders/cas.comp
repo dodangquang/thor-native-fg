@@ -1,0 +1,137 @@
+#version 450
+// Thor Native FG - Contrast Adaptive Sharpening
+// AMD FidelityFX CAS-inspired adaptive sharpening for post-upscale clarity
+// Similar to DLSS sharpening pass - enhances detail without over-sharpening
+layout(local_size_x=8,local_size_y=8) in;
+
+layout(binding=0) uniform sampler2D inputImage;
+layout(binding=1,rgba8) uniform writeonly image2D outputImage;
+
+layout(push_constant) uniform Params {
+    ivec2 size;
+    float sharpness; // 0.0 = no sharpening, 1.0 = maximum (recommend 0.4-0.7)
+    int preserveText; // 1 = detect and preserve flat regions (text/HUD)
+} p;
+
+// CAS uses a different colorspace for sharpening
+vec3 casLoad(ivec2 coord) {
+    coord = clamp(coord, ivec2(0), p.size - 1);
+    return texelFetch(inputImage, coord, 0).rgb;
+}
+
+// Soft RGB to luma for edge detection
+float casLuma(vec3 color) {
+    return dot(color, vec3(0.299, 0.587, 0.114));
+}
+
+// Main CAS sharpening kernel
+vec3 casFilter(ivec2 at) {
+    // Load 3x3 neighborhood
+    // a b c
+    // d e f
+    // g h i
+    vec3 a = casLoad(at + ivec2(-1, -1));
+    vec3 b = casLoad(at + ivec2( 0, -1));
+    vec3 c = casLoad(at + ivec2( 1, -1));
+    vec3 d = casLoad(at + ivec2(-1,  0));
+    vec3 e = casLoad(at + ivec2( 0,  0)); // Center
+    vec3 f = casLoad(at + ivec2( 1,  0));
+    vec3 g = casLoad(at + ivec2(-1,  1));
+    vec3 h = casLoad(at + ivec2( 0,  1));
+    vec3 i = casLoad(at + ivec2( 1,  1));
+    
+    // Compute lumas for edge detection
+    float La = casLuma(a);
+    float Lb = casLuma(b);
+    float Lc = casLuma(c);
+    float Ld = casLuma(d);
+    float Le = casLuma(e);
+    float Lf = casLuma(f);
+    float Lg = casLuma(g);
+    float Lh = casLuma(h);
+    float Li = casLuma(i);
+    
+    // Find local min/max luma
+    float minL = min(min(min(Ld, Le), min(Lf, Lb)), Lh);
+    float maxL = max(max(max(Ld, Le), max(Lf, Lb)), Lh);
+    
+    // Local contrast
+    float contrast = maxL - minL;
+    
+    // Adaptive sharpening strength based on local contrast
+    // High contrast = edges, sharpen more
+    // Low contrast = flat regions, sharpen less to avoid noise
+    float edgeFactor = clamp(contrast * 4.0, 0.0, 1.0);
+    
+    // Text/HUD detection: very flat regions with occasional sharp transitions
+    bool flatRegion = false;
+    if (p.preserveText != 0) {
+        // Check if this is a very flat region (text/solid color)
+        float variance = abs(Le - Lb) + abs(Le - Ld) + abs(Le - Lf) + abs(Le - Lh);
+        flatRegion = (variance < 0.02 && contrast < 0.1);
+    }
+    
+    if (flatRegion) {
+        // Don't sharpen flat regions (text, HUD, solid colors)
+        return e;
+    }
+    
+    // Compute directional filters for edge-aware sharpening
+    // Cross pattern (up, down, left, right)
+    float weightB = Lb;
+    float weightD = Ld;
+    float weightF = Lf;
+    float weightH = Lh;
+    
+    // Find peak (brightest or darkest direction for sharpening)
+    float peak = max(max(max(weightB, weightD), max(weightF, weightH)), Le);
+    float valley = min(min(min(weightB, weightD), min(weightF, weightH)), Le);
+    
+    // Sharpening direction - either towards peak or away from valley
+    float sharpDir = (peak - Le) > (Le - valley) ? peak : valley;
+    
+    // Compute final sharpening amount
+    // Use reciprocal of max to avoid over-sharpening already sharp regions
+    float rcpMaxL = 1.0 / max(max(max(max(weightB, weightD), max(weightF, weightH)), Le), 1e-6);
+    
+    // Adaptive sharpening kernel
+    // w = adaptive weight based on local contrast and user sharpness
+    float w = contrast * rcpMaxL;
+    w = clamp(w * p.sharpness * edgeFactor, 0.0, 1.0);
+    
+    // Apply directional sharpening
+    // Negative Laplacian: sharpen = center - blur
+    // But CAS uses a smarter weighted approach
+    vec3 sharp = (b + d + f + h) * 0.25;
+    
+    // Instead of simple unsharp mask, use adaptive blend
+    // When w is high (edges), sharpen more
+    // Clamp to avoid halos
+    vec3 sharpened = e + (e - sharp) * w;
+    
+    // Clamp to neighborhood to prevent halos and overshoot
+    vec3 minRGB = min(min(min(d, e), min(f, b)), h);
+    vec3 maxRGB = max(max(max(d, e), max(f, b)), h);
+    
+    return clamp(sharpened, minRGB, maxRGB);
+}
+
+void main() {
+    ivec2 at = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(at, p.size))) return;
+    
+    vec3 color;
+    
+    if (p.sharpness <= 0.0) {
+        // No sharpening, pass through
+        color = casLoad(at);
+    } else {
+        // Apply adaptive sharpening
+        color = casFilter(at);
+    }
+    
+    // Preserve alpha
+    float alpha = texelFetch(inputImage, at, 0).a;
+    
+    imageStore(outputImage, at, vec4(color, alpha));
+}

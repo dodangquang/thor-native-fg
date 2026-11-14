@@ -89,11 +89,22 @@ static bool srReplace(Device& d,VkCommandBuffer cmd,VkImage src,VkImageLayout sr
   if(command.engines.size()<=slot)command.engines.resize(slot+1);
   VkExtent2D input{uint32_t(width),uint32_t(height)};
   char modelProperty[PROP_VALUE_MAX]{};__system_property_get("persist.thorfg.sr_model",modelProperty);
-  SpatialModel model=!std::strcmp(modelProperty,"neural2d")?SpatialModel::NeuralBounded:(!std::strcmp(modelProperty,"sgsr1")?SpatialModel::Sgsr1:SpatialModel::Sgsr2);
-  auto& engine=model==SpatialModel::Sgsr2?swap->srEngine:command.engines[slot];
-  if(!engine||engine->spatialModel!=model||engine->input.width!=input.width||engine->input.height!=input.height||engine->output.width!=swap->extent.width||engine->output.height!=swap->extent.height){
-   auto replacement=std::make_unique<Engine>();replacement->initSpatial(d.a,d.memory,input,swap->extent,model);engine=std::move(replacement);
-   LOG("SR_PIPELINE input=%ux%u output=%ux%u source=application_blit algorithm=%s",input.width,input.height,swap->extent.width,swap->extent.height,spatialModelName(model));
+  SpatialModel model=!std::strcmp(modelProperty,"neural2d")?SpatialModel::NeuralBounded:(!std::strcmp(modelProperty,"sgsr2")?SpatialModel::Spatial9:SpatialModel::Sgsr1);
+  char taaProperty[PROP_VALUE_MAX]{};__system_property_get("persist.thorfg.taa",taaProperty);bool taa=!std::strcmp(taaProperty,"1");
+  // TAA already does temporal anti-aliasing; running FXAA on top as well
+  // would cost a second AA pass for no real quality gain, so TAA wins.
+  char aaProperty[PROP_VALUE_MAX]{};__system_property_get("persist.thorfg.fxaa",aaProperty);bool fxaa=!taa&&!std::strcmp(aaProperty,"1");
+  // SMAA (morphological) is the preferred spatial AA: keeps text sharper
+  // than FXAA while removing more jaggies on diagonals. Mutually exclusive
+  // with both TAA and FXAA.
+  char smaaProperty[PROP_VALUE_MAX]{};__system_property_get("persist.thorfg.smaa",smaaProperty);bool smaa=!taa&&!fxaa&&!std::strcmp(smaaProperty,"1");
+  char casProperty[PROP_VALUE_MAX]{};__system_property_get("persist.thorfg.cas",casProperty);bool cas=strcmp(casProperty,"0")!=0;
+  char sharpProperty[PROP_VALUE_MAX]{};__system_property_get("persist.thorfg.cas_sharpness",sharpProperty);float sharpness=sharpProperty[0]?(float)atof(sharpProperty):0.6f;
+  char taaBlendProperty[PROP_VALUE_MAX]{};__system_property_get("persist.thorfg.taa_blend",taaBlendProperty);float taaBlend=taaBlendProperty[0]?(float)atof(taaBlendProperty):0.12f;
+  auto& engine=command.engines[slot];
+  if(!engine||engine->spatialModel!=model||engine->fxaa!=fxaa||engine->smaa!=smaa||engine->enableCAS!=cas||engine->casSharpness!=sharpness||engine->enableTAA!=taa||engine->taaBlend!=taaBlend||engine->input.width!=input.width||engine->input.height!=input.height||engine->output.width!=swap->extent.width||engine->output.height!=swap->extent.height){
+   auto replacement=std::make_unique<Engine>();replacement->initSpatial(d.a,d.memory,input,swap->extent,model,fxaa,cas,sharpness,taa,taaBlend,smaa);engine=std::move(replacement);
+   LOG("SR_PIPELINE input=%ux%u output=%ux%u source=application_blit algorithm=%s fxaa=%d smaa=%d cas=%d sharpness=%.2f taa=%d",input.width,input.height,swap->extent.width,swap->extent.height,spatialModelName(model),fxaa,smaa,cas,sharpness,taa);
   }
   command.hits.push_back({swap,index,input,model});command.next++;
   engine->recordSpatial(cmd,src,srcLayout,region);

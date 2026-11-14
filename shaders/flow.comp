@@ -4,16 +4,72 @@ layout(local_size_x=8,local_size_y=8) in;
 layout(binding=0) uniform sampler2D prevFrame;
 layout(binding=1) uniform sampler2D currFrame;
 layout(binding=2,rgba32f) uniform writeonly image2D flowImage;
+// Per-block match error for both directions (forward in .x, backward in .y).
+// The generator previously discarded these costs after picking a vector, so
+// the interpolator could only re-derive confidence from an endpoint
+// consistency check. A separate 16-bit target is used because the flow image
+// already spends all four 32-bit channels on the two vectors.
+layout(binding=4,rgba16f) uniform writeonly image2D costImage;
 #define THOR_QUALITY_BINDING 3
 #include "quality.glsl"
 layout(push_constant) uniform Params { ivec2 inputSize; ivec2 gridSize; float phase; int history; } p;
-float delta(vec3 a, vec3 b) { return dot(abs(a-b),vec3(0.299,0.587,0.114)); }
+// Improved color difference with chroma weighting to reduce false matches
+float delta(vec3 a, vec3 b) { 
+  vec3 diff=abs(a-b);
+  // Luma difference is primary, but add chroma to disambiguate similar-luma regions
+  return dot(diff,vec3(0.299,0.587,0.114))+dot(diff,vec3(0.114,0.299,0.587))*0.15;
+}
 // One workgroup owns a block. Share its16reference samples; independent lanes
-// evaluate the same81candidates as the serial reference. Reduction includes the
+// evaluate the same candidates as the serial reference. Reduction includes the
 // original candidate index so ties preserve the serial y/x traversal exactly.
+//
+// Search (identical in tests/reference/flow_serial.comp):
+//  1. fine:   81 offsets in [-4,4]^2 (original window)
+//  2. coarse: 81 offsets in [-12,12]^2 with step 3
+//  3. refine:  9 offsets in [-1,1]^2 around the coarse winner
+// The refined vector replaces the fine one only when it is clearly better,
+// so small motion keeps the original behaviour while fast pans (up to 13
+// grid pixels, ~3x the old range) no longer fall off the search window.
+#define COARSE_STEP 3
+#define REFINE_MARGIN 0.85
+#define SEARCH_LIMIT 28.5
+#define FAR_STEP 6
+#define FAR_TRIGGER 9
+// The far stage runs only for blocks whose near winner sits at its search edge,
+// so slow content costs exactly what it did before.
 shared vec4 previousPatch[16],currentPatch[16];
 shared float forwardCost[64],backwardCost[64];
 shared uint forwardIndex[64],backwardIndex[64];
+shared ivec2 fineF,fineB,coarseF,coarseB;shared float fineFCost,fineBCost;
+shared ivec2 farF,farB;shared ivec2 baseF,baseB;shared float baseFCost,baseBCost;
+ivec2 window9(uint c){return ivec2(int(c)%9-4,int(c)/9-4);}
+ivec2 window3(uint c){return ivec2(int(c)%3-1,int(c)/3-1);}
+ivec2 window7(uint c){return ivec2(int(c)%7-3,int(c)/7-3);}
+float cost(bool reverse,vec2 center,vec2 fullGrid,ivec2 o){
+  vec2 offset=vec2(o)/fullGrid;float c=0;int sampleIndex=0;
+  for(int j=-3;j<=3;j+=2)for(int i=-3;i<=3;i+=2){
+    vec2 uv=center+vec2(i,j)/fullGrid;
+    c+=reverse?delta(currentPatch[sampleIndex].rgb,textureLod(prevFrame,uv+offset,0).rgb)
+              :delta(previousPatch[sampleIndex].rgb,textureLod(currFrame,uv+offset,0).rgb);
+    sampleIndex++;
+  }
+  // Regularisation that prefers the smaller motion when two candidates match
+  // equally well. 0.00003 tilted a 24-unit fast pan by 0.017 - comparable to a
+  // good match cost - so a fast pan was answered with a shorter vector and the
+  // generated frame moved only part of the way (judder). Keep the tie-break,
+  // scaled so it cannot outvote real image evidence.
+  return c/16.0+0.000005*float(o.x*o.x+o.y*o.y);
+}
+void reduceBest(uint lane){
+  barrier();
+  for(uint stride=32u;stride>0u;stride/=2u){
+    if(lane<stride){uint other=lane+stride;
+      if(forwardCost[other]<forwardCost[lane]||(forwardCost[other]==forwardCost[lane]&&forwardIndex[other]<forwardIndex[lane])){forwardCost[lane]=forwardCost[other];forwardIndex[lane]=forwardIndex[other];}
+      if(backwardCost[other]<backwardCost[lane]||(backwardCost[other]==backwardCost[lane]&&backwardIndex[other]<backwardIndex[lane])){backwardCost[lane]=backwardCost[other];backwardIndex[lane]=backwardIndex[other];}
+    }
+    barrier();
+  }
+}
 void main(){
   ivec2 at=ivec2(gl_WorkGroupID.xy);if(any(greaterThanEqual(at,p.gridSize)))return;
   uint lane=gl_LocalInvocationIndex;
@@ -25,35 +81,92 @@ void main(){
     currentPatch[lane]=textureLod(currFrame,uv,0);
   }
   barrier();
-  float fBest=100.0,bBest=100.0;uint fIndex=81u,bIndex=81u;
-  for(uint candidate=lane;candidate<81u;candidate+=64u){
-    int x=int(candidate)%9-4,y=int(candidate)/9-4;vec2 offset=vec2(x,y)/fullGrid;
-    float fCost=0,bCost=0;int sampleIndex=0;
-    for(int j=-3;j<=3;j+=2)for(int i=-3;i<=3;i+=2){
-      vec2 uv=center+vec2(i,j)/fullGrid;
-      fCost+=delta(previousPatch[sampleIndex].rgb,textureLod(currFrame,uv+offset,0).rgb);
-      bCost+=delta(currentPatch[sampleIndex].rgb,textureLod(prevFrame,uv+offset,0).rgb);
-      sampleIndex++;
+  // Stage 1 and 2 share the same 81-entry y/x traversal.
+  bool skipRefine=false;
+  for(int stage=0;stage<2;stage++){
+    int scale=stage==0?1:COARSE_STEP;
+    float fBest=100.0,bBest=100.0;uint fIndex=81u,bIndex=81u;
+    for(uint candidate=lane;candidate<81u;candidate+=64u){
+      ivec2 o=window9(candidate)*scale;
+      float fCost=cost(false,center,fullGrid,o),bCost=cost(true,center,fullGrid,o);
+      if(fCost<fBest){fBest=fCost;fIndex=candidate;}
+      if(bCost<bBest){bBest=bCost;bIndex=candidate;}
     }
-    fCost=fCost/16.0+0.00003*float(x*x+y*y);bCost=bCost/16.0+0.00003*float(x*x+y*y);
-    if(fCost<fBest){fBest=fCost;fIndex=candidate;}
-    if(bCost<bBest){bBest=bCost;bIndex=candidate;}
-  }
-  forwardCost[lane]=fBest;backwardCost[lane]=bBest;forwardIndex[lane]=fIndex;backwardIndex[lane]=bIndex;
-  barrier();
-  for(uint stride=32u;stride>0u;stride/=2u){
-    if(lane<stride){uint other=lane+stride;
-      if(forwardCost[other]<forwardCost[lane]||(forwardCost[other]==forwardCost[lane]&&forwardIndex[other]<forwardIndex[lane])){forwardCost[lane]=forwardCost[other];forwardIndex[lane]=forwardIndex[other];}
-      if(backwardCost[other]<backwardCost[lane]||(backwardCost[other]==backwardCost[lane]&&backwardIndex[other]<backwardIndex[lane])){backwardCost[lane]=backwardCost[other];backwardIndex[lane]=backwardIndex[other];}
+    forwardCost[lane]=fBest;backwardCost[lane]=bBest;forwardIndex[lane]=fIndex;backwardIndex[lane]=bIndex;
+    reduceBest(lane);
+    if(lane==0u){
+      if(stage==0){fineF=window9(forwardIndex[0]);fineB=window9(backwardIndex[0]);fineFCost=forwardCost[0];fineBCost=backwardCost[0];}
+      else {coarseF=window9(forwardIndex[0])*COARSE_STEP;coarseB=window9(backwardIndex[0])*COARSE_STEP;}
     }
     barrier();
+    // A block whose fine match is already near-exact (static scenery, HUD,
+    // letterbox bars) cannot be improved by a wider window or by the one-pixel
+    // refinement: both only look further away. Skipping them keeps those
+    // blocks bit-identical while removing most of the work in static regions.
+    if(stage==0&&forwardCost[0]<0.0025f&&backwardCost[0]<0.0025f){
+      skipRefine=true;if(lane==0u){coarseF=fineF;coarseB=fineB;}
+      break;
+    }
+  }
+  // Stage 3: far search, only when the near winner sat on its search edge. A
+  // fast pan then gets matched instead of being clamped, so the quality gate no
+  // longer rejects the whole frame (which duplicated frames = judder).
+  if(lane==0u){baseF=coarseF;baseB=coarseB;baseFCost=cost(false,center,fullGrid,coarseF);baseBCost=cost(true,center,fullGrid,coarseB);}
+  barrier();
+  if(!skipRefine){
+    bool needFar=max(abs(coarseF.x),abs(coarseF.y))>=FAR_TRIGGER||max(abs(coarseB.x),abs(coarseB.y))>=FAR_TRIGGER;
+    if(needFar){
+      float fBest=100.0,bBest=100.0;uint fIndex=81u,bIndex=81u;
+      for(uint candidate=lane;candidate<81u;candidate+=64u){
+        ivec2 o=window9(candidate)*FAR_STEP;
+        float fCost=cost(false,center,fullGrid,o),bCost=cost(true,center,fullGrid,o);
+        if(fCost<fBest){fBest=fCost;fIndex=candidate;}
+        if(bCost<bBest){bBest=bCost;bIndex=candidate;}
+      }
+      forwardCost[lane]=fBest;backwardCost[lane]=bBest;forwardIndex[lane]=fIndex;backwardIndex[lane]=bIndex;
+      reduceBest(lane);
+      if(lane==0u){farF=window9(forwardIndex[0])*FAR_STEP;farB=window9(backwardIndex[0])*FAR_STEP;}
+      barrier();
+      // Six-unit quantisation is too coarse to place a vector exactly, so the far
+      // winner is refined by up to three pixels before the one-pixel stage.
+      float f2=100.0,b2=100.0;uint i2=49u;
+      if(lane<49u){ivec2 o=window7(lane);f2=cost(false,center,fullGrid,farF+o);b2=cost(true,center,fullGrid,farB+o);i2=lane;}
+      forwardCost[lane]=f2;backwardCost[lane]=b2;forwardIndex[lane]=i2;backwardIndex[lane]=i2;
+      reduceBest(lane);
+      if(lane==0u){
+        ivec2 rf=farF+window7(forwardIndex[0]),rb=farB+window7(backwardIndex[0]);
+        if(forwardCost[0]<baseFCost){baseF=rf;baseFCost=forwardCost[0];}
+        if(backwardCost[0]<baseBCost){baseB=rb;baseBCost=backwardCost[0];}
+      }
+      barrier();
+    }
+  }
+  // Stage 4: one-pixel refinement of the chosen base.
+  if(!skipRefine){
+    float fBest=100.0,bBest=100.0;uint fIndex=9u,bIndex=9u;
+    if(lane<9u){
+      fBest=cost(false,center,fullGrid,baseF+window3(lane));fIndex=lane;
+      bBest=cost(true,center,fullGrid,baseB+window3(lane));bIndex=lane;
+    }
+    forwardCost[lane]=fBest;backwardCost[lane]=bBest;forwardIndex[lane]=fIndex;backwardIndex[lane]=bIndex;
+    reduceBest(lane);
   }
   if(lane!=0u)return;
-  vec3 f=vec3(vec2(int(forwardIndex[0])%9-4,int(forwardIndex[0])/9-4)/fullGrid,forwardCost[0]);
-  vec3 b=vec3(vec2(int(backwardIndex[0])%9-4,int(backwardIndex[0])/9-4)/fullGrid,backwardCost[0]);
+  ivec2 rf=baseF+window3(forwardIndex[0]),rb=baseB+window3(backwardIndex[0]);
+  float refFCost=min(fineFCost,baseFCost),refBCost=min(fineBCost,baseBCost);
+  bool useF=!skipRefine&&forwardCost[0]<refFCost*REFINE_MARGIN,useB=!skipRefine&&backwardCost[0]<refBCost*REFINE_MARGIN;
+  ivec2 vf,vb;float cf,cb;
+  if(useF){vf=rf;cf=forwardCost[0];}else if(baseFCost<fineFCost){vf=baseF;cf=baseFCost;}else{vf=fineF;cf=fineFCost;}
+  if(useB){vb=rb;cb=backwardCost[0];}else if(baseBCost<fineBCost){vb=baseB;cb=baseBCost;}else{vb=fineB;cb=fineBCost;}
+  vec3 f=vec3(vec2(vf)/fullGrid,cf),b=vec3(vec2(vb)/fullGrid,cb);
   imageStore(flowImage,at,vec4(f.xy,b.xy));
-  atomicAdd(stats.valid,(f.z<0.075 && b.z<0.075)?1u:0u);
+  imageStore(costImage,at,vec4(f.z,b.z,0.0,0.0));
+  
+  // Adjusted thresholds for improved matching with chroma
+  atomicAdd(stats.valid,(f.z<0.085 && b.z<0.085)?1u:0u);
   vec2 scale=vec2(p.gridSize*8);
-  bool edge=any(greaterThanEqual(abs(f.xy*scale),vec2(3.5)))||any(greaterThanEqual(abs(b.xy*scale),vec2(3.5)));
+  // Slightly more lenient reliable threshold with improved cost function
+  atomicAdd(stats.reliable,(f.z<0.018&&b.z<0.018&&length((f.xy+b.xy)*scale)<1.6)?1u:0u);
+  bool edge=any(greaterThanEqual(abs(f.xy*scale),vec2(SEARCH_LIMIT)))||any(greaterThanEqual(abs(b.xy*scale),vec2(SEARCH_LIMIT)));
   atomicAdd(stats.boundary,edge?1u:0u);
 }

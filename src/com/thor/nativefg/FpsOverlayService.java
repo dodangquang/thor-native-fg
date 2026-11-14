@@ -50,6 +50,44 @@ public class FpsOverlayService extends Service {
         logThread=new Thread(()->readLogs(),"thor-runtime-hud");logThread.start();main.post(refresh);
     }
     private SharedPreferences getPreferences(){return getSharedPreferences("thor",MODE_PRIVATE);}
+    // AA mode and device temperature for the HUD. Both are read locally: the
+    // prefs are what writes the layer properties, and the thermal zones are
+    // world readable (verified on the Thor: -r--r--r--).
+    private String aaLabel(){
+        boolean smaa=getPreferences().getBoolean("smaa",true);
+        boolean fxaa=getPreferences().getBoolean("fxaa",false);
+        return smaa?"AA SMAA":fxaa?"AA FXAA":"AA tắt";
+    }
+    private long temperatureAt=0;
+    private String temperatureValue="—°C";
+    private String temperature(){
+        // Reading 40 sysfs files on every HUD tick made the overlay thread and the
+        // UI feel sluggish; one sample every few seconds is plenty for a thermometer.
+        long now=SystemClock.elapsedRealtime();
+        if(now-temperatureAt<3000)return temperatureValue;
+        temperatureAt=now;
+        temperatureValue=readTemperature();
+        return temperatureValue;
+    }
+    private String readTemperature(){
+        int best=0;
+        for(int zone=0;zone<40;zone++){
+            try{
+                java.io.BufferedReader reader=new java.io.BufferedReader(new java.io.FileReader("/sys/class/thermal/thermal_zone"+zone+"/temp"));
+                String raw=reader.readLine();reader.close();
+                if(raw==null)continue;
+                int value=Integer.parseInt(raw.trim());
+                if(value>1000)value/=1000;
+                if(value>0&&value<125&&value>best)best=value;
+            }catch(Exception ignored){}
+        }
+        if(best>0)return best+"°C";
+        try{
+            Intent battery=registerReceiver(null,new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            if(battery!=null){int tenths=battery.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE,0);if(tenths>0)return (tenths/10)+"°C";}
+        }catch(Exception ignored){}
+        return "—°C";
+    }
     private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
     private void clampPosition(){android.util.DisplayMetrics display=getResources().getDisplayMetrics();position.x=Math.max(0,Math.min(position.x,Math.max(0,display.widthPixels-hud.getWidth())));position.y=Math.max(0,Math.min(position.y,Math.max(0,display.heightPixels-hud.getHeight())));}
     @Override public void onConfigurationChanged(android.content.res.Configuration config){super.onConfigurationChanged(config);if(hud!=null&&attached){clampPosition();windows.updateViewLayout(hud,position);}}
@@ -89,7 +127,22 @@ public class FpsOverlayService extends Service {
                 " game_pid=0\n if [ \"$game_active\" = 1 ] && [ -n \"$game_target\" ]; then game_pid=$(pidof -s \"$game_target\"); fi\n"+
                 " sgsr2_info=''\n if [ \"$game_target\" = com.droiddeck.launcher ] && [ -n \"$game_pid\" ] && [ \"$game_pid\" != 0 ] && pgrep -u 10201 -f '\\.exe' >/dev/null 2>&1; then\n"+
                 "  sgsr2_info=$(grep -h 'Initializing.*SGSR2 ' /data/user/0/com.droiddeck.launcher/files/linuxfs/root/.local/share/Steam/steamapps/common/*/LittleFoxSim_v1/Binaries/Win64/OptiScaler-Thor-GSR2.log /data/user/0/com.droiddeck.launcher/files/linuxfs/root/.local/share/Steam/steamapps/common/*/*/OptiScaler-Thor-GSR2.log /data/user/0/com.droiddeck.launcher/files/linuxfs/root/.local/share/Steam/steamapps/common/*/OptiScaler-Thor-GSR2.log 2>/dev/null | tail -n 1 | awk '{for(i=1;i<=NF;i++) if($i==\"SGSR2\") {print $(i+1)\"->\"$(i+3); break}}')\n fi\n"+
-                " printf 'THOR_CONFIG target=%s active=%s pid=%s auto=%s sgsr2=%s\\n' \"$game_target\" \"$game_active\" \"$game_pid\" \"$auto_mode\" \"$sgsr2_info\"\n sleep 2\n done ) &\npoll_pid=$!\n"+
+                " printf 'THOR_CONFIG target=%s active=%s pid=%s auto=%s sgsr2=%s\\n' \"$game_target\" \"$game_active\" \"$game_pid\" \"$auto_mode\" \"$sgsr2_info\"\n"+
+                // A30FPS game votes the panel down to60Hz, which leaves no slot
+                // for three generated frames. Keep120Hz while a framed game runs
+                // and restore the user's own values afterwards.
+                " triple_allowed=$(getprop persist.thorfg.triple)\n saved=/data/adb/thor-native-fg/refresh.saved\n"+
+                " if [ \"$game_active\" = 1 ] && [ -n \"$game_target\" ] && [ \"$triple_allowed\" = 1 ]; then\n"+
+                "  if [ ! -f \"$saved\" ]; then mkdir -p /data/adb/thor-native-fg; printf '%s %s\\n' \"$(settings get system peak_refresh_rate)\" \"$(settings get system min_refresh_rate)\" > \"$saved\"; fi\n"+
+                "  log -t ThorFgSvc \"refresh hold on target=$game_target\"\n  [ \"$(settings get system peak_refresh_rate)\" = 120.0 ] || settings put system peak_refresh_rate 120.0\n"+
+                "  [ \"$(settings get system min_refresh_rate)\" = 120.0 ] || settings put system min_refresh_rate 120.0\n"+
+                " elif [ -f \"$saved\" ]; then\n"+
+                "  read prev_peak prev_min < \"$saved\"\n"+
+                "  case \"$prev_peak\" in ''|null) settings delete system peak_refresh_rate;; *) settings put system peak_refresh_rate \"$prev_peak\";; esac\n"+
+                "  case \"$prev_min\" in ''|null) settings delete system min_refresh_rate;; *) settings put system min_refresh_rate \"$prev_min\";; esac\n"+
+                "  log -t ThorFgSvc \"refresh hold restored\"\n  rm -f \"$saved\"\n"+
+                " fi\n"+
+                " sleep 2\n done ) &\npoll_pid=$!\n"+
                 "trap 'kill \"$log_pid\" \"$poll_pid\" 2>/dev/null' EXIT HUP INT TERM\nIFS= read -r stop_command\n";
             java.lang.Process process=new ProcessBuilder("su","-c",monitor).redirectErrorStream(true).start();logProcess=process;
             if(stopped){process.getOutputStream().close();return;}
@@ -111,7 +164,7 @@ public class FpsOverlayService extends Service {
         else if(!active)hud.setText("Gốc — | FG TẮT | SR TẮT");
         else if(targetPid==0)hud.setText("Gốc — | FG — | SR —");
         else if(value==null||!value.fresh(SystemClock.elapsedRealtime()))hud.setText("Gốc — | FG — | SR —");
-        else hud.setText(value.hud(externalSr));
+        else hud.setText(value.fpsOnly()+" · "+aaLabel()+" · "+temperature());
         main.postDelayed(this,500);
     }};
     @Override public int onStartCommand(Intent intent,int flags,int id){if(intent!=null&&"HIDE".equals(intent.getAction())){getPreferences().edit().putBoolean("hud_visible",false).apply();stopSelf();return START_NOT_STICKY;}if(hud==null){stopSelf();return START_NOT_STICKY;}return START_STICKY;}

@@ -26,7 +26,11 @@ final class DroidDeckPreset {
     }
     static synchronized String change(Context context,boolean restore)throws Exception{
         PackageInfo app=context.getPackageManager().getPackageInfo(PACKAGE,0);
-        if(!"0.5.0".equals(app.versionName)||app.getLongVersionCode()!=14||app.applicationInfo.uid<10000||app.applicationInfo.uid>=100000)throw new IOException("Preset mới xác nhận với DroidDeck 0.5.0 (14) ở hồ sơ chính, chưa hỗ trợ phiên bản này.");
+        // The three preferences this preset owns still exist in0.6.0 with the same
+        // types, so both builds are supported; anything else is refused instead of
+        // guessing at an unknown schema.
+        boolean supported=("0.5.0".equals(app.versionName)&&app.getLongVersionCode()==14)||("0.6.0".equals(app.versionName)&&app.getLongVersionCode()==15);
+        if(!supported||app.applicationInfo.uid<10000||app.applicationInfo.uid>=100000)throw new IOException("Preset mới xác nhận với DroidDeck 0.5.0 (14) hoặc 0.6.0 (15) ở hồ sơ chính, chưa hỗ trợ phiên bản này.");
         int uid=app.applicationInfo.uid;
         String tx=AutoMode.DIRECTORY+"/preset-tx-"+UUID.randomUUID().toString();
         // Keep originals in root-private storage, not app-readable /data/local/tmp.

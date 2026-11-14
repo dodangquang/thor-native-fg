@@ -4,7 +4,7 @@
 #include <cstdint>
 // Exact std430 layout shared with shaders/quality.glsl.
 struct QualityStats {
- uint32_t rgbSum{},lumaSum{},changed{},valid{},count{},boundary{},ambiguous{},reserved{};
+ uint32_t rgbSum{},lumaSum{},changed{},valid{},count{},boundary{},ambiguous{},reliable{};
  std::array<uint32_t,64> previousHistogram{},currentHistogram{};
  uint32_t holdoff{},allow{},reasons{},historySerial{};
 };

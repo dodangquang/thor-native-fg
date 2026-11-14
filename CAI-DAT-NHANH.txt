@@ -1,0 +1,100 @@
+═══════════════════════════════════════════════════════════════════════════════
+  CÀI ĐẶT NHANH THOR NATIVE FG - IMPROVEMENTS VERSION
+═══════════════════════════════════════════════════════════════════════════════
+
+📦 APK ĐÃ SẴN SÀNG: ThorNativeFG-FG-stability-test.apk (901.6KB)
+
+✅ Bản này có gì:
+  • Frame generation stability (giảm flicker khi pan camera)
+  • FXAA với text/HUD detection (không blur HUD)
+  • Adaptive quality thresholds
+  • Better motion flow (chroma-aware)
+
+❌ Bản này CHƯA có:
+  • TAA (Temporal Anti-Aliasing)
+  • CAS (Contrast Adaptive Sharpening)
+  → Để có TAA + CAS, cần build APK mới (xem HUONG-DAN-CAI-DAT.md)
+
+═══════════════════════════════════════════════════════════════════════════════
+CÁCH 1: CÀI QUA SCRIPT (DỄ NHẤT)
+═══════════════════════════════════════════════════════════════════════════════
+
+1. Download 2 files (đã share):
+   ✓ ThorNativeFG-FG-stability-test.apk
+   ✓ CAI-NGAY.bat
+
+2. Kết nối AYN Thor qua USB
+   • Settings → Developer Options → USB Debugging = ON
+   • Cắm USB-C vào máy tính
+
+3. Double-click: CAI-NGAY.bat
+   • Script sẽ tự động cài APK
+   • Chấp nhận prompt "Allow USB Debugging" trên Thor nếu có
+
+═══════════════════════════════════════════════════════════════════════════════
+CÁCH 2: CÀI THỦ CÔNG QUA ADB
+═══════════════════════════════════════════════════════════════════════════════
+
+Trong thư mục: C:\Users\dodan\thor-native-fg
+
+1. Mở PowerShell hoặc CMD
+
+2. Kiểm tra kết nối:
+   toolchain\platform-tools\adb.exe devices
+
+3. Cài APK:
+   toolchain\platform-tools\adb.exe install -r ThorNativeFG-FG-stability-test.apk
+
+4. Verify:
+   toolchain\platform-tools\adb.exe shell pm list packages | findstr thor
+
+═══════════════════════════════════════════════════════════════════════════════
+CÁCH 3: CÀI TRỰC TIẾP TRÊN THOR (KHÔNG CẦN MÁY TÍNH)
+═══════════════════════════════════════════════════════════════════════════════
+
+1. Download APK về Thor (qua link đã share)
+
+2. Trên Thor:
+   • Settings → Security → Allow "Install from unknown sources"
+
+3. Mở File Manager → Downloads → tap vào .apk → Install
+
+═══════════════════════════════════════════════════════════════════════════════
+SAU KHI CÀI XONG
+═══════════════════════════════════════════════════════════════════════════════
+
+✅ TEST:
+  1. Mở game với Frame Generation enabled
+  2. Pan camera nhanh → Ít flicker hơn trước
+  3. Zoom vào text/HUD → Vẫn rõ nét
+  4. Quan sát edges → Smooth hơn với FXAA
+
+📊 MONITOR PERFORMANCE:
+  adb logcat -s ThorNativeFG:V
+
+🔧 NẾU GẶP VẤN ĐỀ:
+  • APK không cài được → Enable "Install unknown sources"
+  • adb không thấy device → Re-enable USB debugging, accept prompt
+  • App crash → Check logcat, có thể rollback APK cũ
+
+═══════════════════════════════════════════════════════════════════════════════
+MUỐN DLSS-LIKE QUALITY (TAA + CAS)?
+═══════════════════════════════════════════════════════════════════════════════
+
+Xem file: HUONG-DAN-CAI-DAT.md
+
+Tóm tắt:
+  1. Tích hợp C++ code (engine.hpp, engine.cpp) - 10 phút
+  2. Build APK mới - 15 phút
+  3. Cài APK mới - 5 phút
+  → Total: ~30 phút để có DLSS-like quality!
+
+Files reference:
+  • DLSS-LIKE-UPGRADE-VI.md - Full integration guide
+  • QUICK-START-DLSS.md - 3-step quick start
+  • SUMMARY-DLSS-UPGRADE-VI.txt - Technical overview
+
+═══════════════════════════════════════════════════════════════════════════════
+
+🎯 Chúc cài đặt thành công! Nếu hài lòng với improvements này, có thể dừng lại.
+   Nếu muốn quality cao hơn nữa (DLSS-like), follow guide để build APK mới!

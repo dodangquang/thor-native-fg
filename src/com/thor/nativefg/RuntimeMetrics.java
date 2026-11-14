@@ -10,6 +10,8 @@ final class RuntimeMetrics {
     final boolean eligible;
     final boolean spatial;
     final int spatialWidth,spatialHeight,spatialModel;
+    /** Whole frame-generation factor as reported by the layer: 1 = off, 2 = one extra frame, 3 = two extra frames. */
+    final int factor;
     final boolean measuredDisplay;
     final double displayedFps;
     final double sourceFps, generatedFps;
@@ -24,7 +26,12 @@ final class RuntimeMetrics {
         spatial=version2?integer(values,"sr")==1:true;
         spatialWidth=version2?integer(values,"sr_in_w"):inputWidth;spatialHeight=version2?integer(values,"sr_in_h"):inputHeight;
         spatialModel=values.containsKey("sa")?integer(values,"sa"):0;
-        if(spatialModel<0||spatialModel>3)throw new IllegalArgumentException("Unknown spatial algorithm");
+        if(spatialModel<0||spatialModel>4)throw new IllegalArgumentException("Unknown spatial algorithm");
+        // Optional field: a layer without triple support reports neither, and
+        // then the HUD must stay exactly as before.
+        int tripleFlag=version2&&values.containsKey("triple")?integer(values,"triple"):0;
+        if(tripleFlag!=0&&tripleFlag!=1)throw new IllegalArgumentException("Unknown frame generation factor");
+        factor=tripleFlag==1?3:2;
         measuredDisplay="1".equals(values.get("display_valid"));displayedFps=measuredDisplay?number(values,"display_fps"):0;
         if(pid<=0||inputWidth<=0||inputHeight<=0||outputWidth<=0||outputHeight<=0||sourceFps<0||generatedFps<0||sourceFps>2000||generatedFps>4000)
             throw new IllegalArgumentException("Invalid engine telemetry");
@@ -46,7 +53,7 @@ final class RuntimeMetrics {
     boolean fresh(long now){return now>=receivedAt&&now-receivedAt<3500;}
     String srLabel(String externalSr) {
         if(hasUpscaling()){
-            String tag=spatialModel==3?"SGSR2":spatialModel==2?"Neural2D":spatialModel==1?"Neural":"GSR1";
+            String tag=spatialModel==4?"Spatial9":spatialModel==3?"GSR2-cũ":spatialModel==2?"Neural2D":spatialModel==1?"Neural":"GSR1";
             return String.format(Locale.US,"%s %d×%d→%d×%d",tag,spatialWidth,spatialHeight,outputWidth,outputHeight);
         }
         if(externalSr!=null&&!externalSr.isEmpty())return externalSr;
@@ -55,12 +62,20 @@ final class RuntimeMetrics {
     String hud() {
         return hud(null);
     }
-    String hud(String externalSr) {
+    // FPS half of the HUD only: the overlay appends the AA mode and the device
+    // temperature, which this class has no business parsing.
+    String fpsOnly() {
+        String mode=eligible&&factor==3?" · 3×":"";
         String fps=eligible?(measuredDisplay?String.format(Locale.US,"Gốc %.0f | FG %.0f",sourceFps,displayedFps):String.format(Locale.US,"Gốc %.0f | FG ≈%.0f",sourceFps,sourceFps+generatedFps)):String.format(Locale.US,"Gốc %.0f | FG —",sourceFps);
-        return fps+" | "+srLabel(externalSr);
+        return fps+mode;
+    }
+    String hud(String externalSr) {
+        String mode=eligible&&factor==3?" · 3×":"";
+        String fps=eligible?(measuredDisplay?String.format(Locale.US,"Gốc %.0f | FG %.0f",sourceFps,displayedFps):String.format(Locale.US,"Gốc %.0f | FG ≈%.0f",sourceFps,sourceFps+generatedFps)):String.format(Locale.US,"Gốc %.0f | FG —",sourceFps);
+        return fps+mode+" | "+srLabel(externalSr);
     }
     String detail() {
-        String algorithm=spatialModel==3?"SGSR2 (Temporal) ON":spatialModel==2?"Neural 2D giảm viền ON":spatialModel==1?"Neural 2D ON":"GSR1 ON";
+        String algorithm=spatialModel==4?"Spatial 9-tap ON":spatialModel==3?"GSR2 thử nghiệm cũ ON — mở lại game để cập nhật":spatialModel==2?"Neural 2D giảm viền ON":spatialModel==1?"Neural 2D ON":"GSR1 ON";
         return hasUpscaling()?String.format(Locale.US,algorithm+" · %d×%d → %d×%d",spatialWidth,spatialHeight,outputWidth,outputHeight):"SR: chưa upscale";
     }
 }

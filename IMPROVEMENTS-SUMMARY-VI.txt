@@ -1,0 +1,252 @@
+CẢI THIỆN FRAME GENERATION VÀ ANTI-ALIASING — 25/10/2026
+
+TỔNG QUAN
+Đã thực hiện các cải thiện chính cho Thor Native FG nhằm:
+1. Giảm flicker trong frame generation khi có chuyển động
+2. Nâng cao chất lượng anti-aliasing, tránh làm mờ HUD/text
+3. Cải thiện độ ổn định tổng thể của frame generation
+
+================================================================================
+PHẦN 1: CẢI THIỆN QUALITY CHECK (shaders/quality.comp)
+================================================================================
+
+VẤN ĐỀ TRƯỚC ĐÂY:
+- Scene cut detection quá nhạy, từ chối nội suy ngay cả khi có motion tốt
+- ReliablePan threshold quá chặt (≥85% reliable, boundary <10%)
+- Fixed thresholds không phù hợp với mọi loại chuyển động
+
+CẢI TIẾN:
+✓ Adaptive thresholds dựa vào motion quality
+  - Khi có excellent flow (≥90% reliable, boundary <8%): nới lỏng RGB/luma thresholds
+  - RGB threshold: 0.15 → 0.20 khi excellent flow
+  - Luma threshold: 0.16 → 0.20 khi excellent flow
+  - Histogram threshold: 0.35 → 0.42 khi excellent flow
+
+✓ Cải thiện reliable pan detection
+  - Reliable threshold giảm từ ≥85% xuống ≥80%
+  - Boundary threshold tăng từ <10% lên <15%
+  - Phát hiện excellent flow (≥90% reliable + boundary <8%)
+
+✓ Dynamic valid/boundary checks
+  - Valid threshold: 0.65 → 0.60 khi reliable ≥75%
+  - Boundary threshold: 0.25 → 0.30 khi reliable ≥80%
+
+✓ Cải thiện scene cut logic
+  - Tách biệt hard cut và histogram cut
+  - Hard cut: RGB/luma/changed thresholds
+  - Histogram cut: histogram ≥threshold + RGB ≥0.050
+  - Chỉ reject khi không phải reliable pan
+
+KẾT QUẢ MỤC TIÊU:
+- Giảm false positive scene cuts khi camera pan nhanh
+- Cho phép FG hoạt động tốt hơn với chuyển động lớn
+- Vẫn giữ được khả năng phát hiện scene cut thực sự
+
+================================================================================
+PHẦN 2: CẢI THIỆN INTERPOLATION (shaders/interpolate.comp)
+================================================================================
+
+VẤN ĐỀ TRƯỚC ĐÂY:
+- Hard fallback từ interpolated frame về current frame gây flicker
+- Smoothstep từ AGREE_LOW (0.035) đến AGREE_HIGH (0.11) quá gấp
+- Không có middle ground cho motion confidence trung bình
+
+CẢI TIẾN:
+✓ Tăng SMOOTHNESS từ 0.004 → 0.003
+  - Ưu tiên matching quality hơn vector smoothness một chút
+
+✓ Multi-stage blending với 3 levels
+  - AGREE_LOW: 0.035 → 0.030 (tốt hơn)
+  - AGREE_MID: 0.075 (mới) - middle confidence
+  - AGREE_HIGH: 0.11 → 0.13 (nới lỏng)
+
+✓ Improved fallback curve
+  agreeStrong = 1.0 - smoothstep(LOW, MID, error)
+  agreeWeak = 1.0 - smoothstep(MID, HIGH, error) 
+  agree = mix(agreeWeak*0.5, agreeStrong, agreeStrong)
+  
+  - Confidence cao (error <MID): blend mạnh với interpolated
+  - Confidence trung bình (MID < error < HIGH): blend 50% với weight giảm dần
+  - Confidence thấp (error >HIGH): blend yếu, fallback về current
+
+✓ Softer transitions giữa các confidence levels
+  - Không còn hard switch
+  - Temporal smoothing tự nhiên hơn
+
+KẾT QUẢ MỤC TIÊU:
+- Giảm đáng kể flicker khi motion confidence dao động
+- Frame transitions mượt mà hơn
+- Vẫn bảo toàn chất lượng khi motion tốt
+
+================================================================================
+PHẦN 3: CẢI THIỆN FXAA (shaders/fxaa.comp)
+================================================================================
+
+VẤN ĐỀ TRƯỚC ĐÂY:
+- FXAA áp dụng đồng đều cho toàn bộ ảnh
+- Làm mờ text, HUD, UI elements
+- Không phân biệt giữa geometry edges và UI edges
+
+CẢI TIẾN:
+✓ Edge classification
+  - Sample 3x3 neighborhood thay vì chỉ diagonal corners
+  - Tính horizontal/vertical gradient riêng
+  - Detect cross-pattern cho text/UI
+
+✓ Text/UI detection
+  crossPattern = |center*4 - (N+S+E+W)|
+  likelyText = crossPattern > range*1.5 && range > 0.15
+  highContrast = range > 0.25
+  
+  - High cross-pattern với moderate range → text/small UI
+  - Very high contrast edges → UI boundaries
+
+✓ Adaptive filtering
+  - Text/UI detected: skip FXAA hoàn toàn
+  - High contrast (non-text): light 4-tap smoothing only
+  - Geometry edges: full directional FXAA
+
+✓ Preserve alpha channel
+  - Luôn giữ nguyên alpha từ source
+  - Chỉ filter RGB channels
+
+KẾT QUẢ MỤC TIÊU:
+- Text/HUD giữ nguyên độ sắc nét
+- Game geometry vẫn được anti-alias tốt
+- Không làm mờ UI elements quan trọng
+
+================================================================================
+PHẦN 4: CẢI THIỆN OPTICAL FLOW (shaders/flow.comp)
+================================================================================
+
+VẤN ĐỀ TRƯỚC ĐÂY:
+- Cost function chỉ dùng luma có thể matching sai vùng tương tự
+- REFINE_MARGIN (0.8) có thể bỏ qua coarse motion tốt
+- Reliability thresholds chặt chẽ
+
+CẢI TIẾN:
+✓ Enhanced color difference function
+  delta(a, b) = dot(|a-b|, luma_weights) + dot(|a-b|, chroma_weights)*0.15
+  
+  - Vẫn ưu tiên luma difference
+  - Thêm 15% chroma information để phân biệt vùng similar-luma
+  - Giảm false matches giữa các vùng có cùng độ sáng nhưng khác màu
+
+✓ REFINE_MARGIN điều chỉnh
+  - 0.8 → 0.85
+  - Cho phép coarse search (±12 pixels) có cơ hội thắng fine search (±4)
+  - Cải thiện tracking cho fast pans
+
+✓ Adjusted reliability thresholds
+  - Valid: cost <0.075 → <0.085 (nới lỏng 13%)
+  - Reliable: cost <0.015 → <0.018 (nới lỏng 20%)
+  - Bidirectional check: length <1.5 → <1.6 pixels
+  
+  Lý do: cost function mới có chroma weight làm tăng giá trị một chút,
+  cần điều chỉnh thresholds tương ứng
+
+KẾT QUẢ MỤC TIÊU:
+- Motion tracking chính xác hơn với chroma hints
+- Fast camera pans được handle tốt hơn
+- Reliable pan detection tốt hơn → ít false scene cuts
+
+================================================================================
+TESTING VÀ VERIFICATION
+================================================================================
+
+ĐỂ BUILD:
+Chạy từ máy có Android SDK:
+  powershell.exe -ExecutionPolicy Bypass -File build.ps1
+
+Hoặc chỉ định SDK path:
+  powershell.exe -ExecutionPolicy Bypass -File build.ps1 -Sdk "C:\Path\To\SDK"
+
+OUTPUT:
+  build/ThorNativeFG-debug.apk
+  build/ThorNativeFG-debug.apk.idsig
+
+ĐỂ KIỂM TRA:
+1. Backup cấu hình hiện tại
+2. Cài APK mới: adb install -r build/ThorNativeFG-debug.apk
+3. Force-stop game đang chạy
+4. Mở app Thor Native FG, chọn settings như cũ
+5. Launch game và test các scenario:
+   - Fast camera panning (trước hay bị reject)
+   - Chuyển động nhanh của character
+   - Scene cuts thực sự (vẫn phải detect)
+   - Đọc text/HUD với FXAA bật
+   
+6. So sánh FG ON vs OFF cùng scene
+7. So sánh FXAA ON vs OFF cho text/UI
+
+EXPECTED RESULTS:
+✓ Ít flicker hơn khi di chuyển camera nhanh
+✓ Frame generation hoạt động với nhiều loại motion hơn
+✓ Text/HUD sắc nét hơn khi FXAA bật
+✓ Geometry vẫn smooth, không jagged edges
+✓ Scene cuts thực sự vẫn được detect đúng
+
+METRICS ĐỂ THEO DÕI:
+- Quality stats: reliable%, valid%, boundary%, allow%
+- FG presentation rate vs rejection rate
+- User-reported flicker incidents
+- FXAA on/off visual comparison
+
+================================================================================
+CHÚ Ý VÀ GIỚI HẠN
+================================================================================
+
+KHÔNG THAY ĐỔI:
+- Engine architecture
+- Memory allocation
+- Pipeline structure
+- API contracts
+- Binary compatibility với runtime cũ
+
+VẪN CÒN GIỚI HẠN:
+- Optical flow vẫn giới hạn ±12 grid pixels (~96 input pixels)
+- Không handle được occlusion/disocclusion hoàn hảo
+- FXAA không phải MSAA/temporal AA - vẫn post-process
+- Chưa có depth/motion vectors từ game renderer
+- Test cases tổng hợp không đại diện 100% cho gameplay thực
+
+CẦN KIỂM TRA THÊM:
+- Performance impact trên Thor (GPU timing)
+- Memory/VRAM usage unchanged
+- Thermal/battery impact
+- Compatibility với các game/giả lập khác nhau
+- Edge cases: loading screens, menus, cinematics
+
+ROLLBACK NẾU CẦN:
+Nếu có regression, cài lại APK trước:
+  ThorNativeFG-FG-stability-test.apk (0.14-rc1)
+  SHA-256: 973A5B1276BED0FB435E7F5EAE3ABB4CEA507436954F93B97FC595FCDD286475
+
+================================================================================
+FILES CHANGED
+================================================================================
+
+shaders/quality.comp     - Scene cut detection với adaptive thresholds
+shaders/interpolate.comp - Multi-stage blending, softer fallback
+shaders/fxaa.comp       - Edge classification, selective filtering
+shaders/flow.comp       - Chroma-aware matching, adjusted thresholds
+
+KHÔNG THAY ĐỔI:
+native/*.cpp/hpp        - Engine logic giữ nguyên
+Java code              - Controller/settings unchanged
+Build system           - Build scripts unchanged
+
+================================================================================
+NEXT STEPS
+================================================================================
+
+1. BUILD APK trên máy có Android SDK
+2. Backup current APK và settings
+3. Install và test trên Thor
+4. Collect metrics và user feedback
+5. Iterate nếu cần điều chỉnh thêm thresholds
+
+Nếu cần support:
+- Log files với detailed quality stats
+- Screen recording của flicker scenarios
+- A/B comparison FG ON/OFF, FXAA ON/OFF

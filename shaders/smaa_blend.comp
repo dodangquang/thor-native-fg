@@ -1,0 +1,64 @@
+#version 450
+// SMAA pass 2: blend using the edge mask from pass 1.
+// For an edge pixel the run of connected edge pixels is measured along the
+// edge; the pixel's position inside that run gives the area coverage of the
+// zig-zag it belongs to. Coverage peaks at the middle of a run and falls to
+// zero at its ends, which is what turns a staircase into a straight line
+// instead of the old fixed-weight blur.
+layout(local_size_x=8,local_size_y=8) in;
+layout(binding=0) uniform sampler2D source;
+layout(binding=1) uniform sampler2D edgeMask;
+layout(binding=2,rgba8) uniform writeonly image2D result;
+layout(push_constant) uniform Params { ivec2 size; } p;
+#define MAX_RUN 4
+
+float luma(vec3 color){return dot(color,vec3(0.299,0.587,0.114));}
+vec4 texelAt(ivec2 at){return texelFetch(source,clamp(at,ivec2(0),p.size-1),0);}
+float maskAt(ivec2 at,bool horizontal){return texelFetch(edgeMask,clamp(at,ivec2(0),p.size-1),0)[horizontal?0:1];}
+
+vec4 blendAlong(ivec2 at,bool horizontal){
+ vec4 center=texelAt(at);
+ ivec2 along=horizontal?ivec2(1,0):ivec2(0,1);
+ ivec2 across=horizontal?ivec2(0,1):ivec2(1,0);
+ int left=0,right=0;
+ for(int i=1;i<=MAX_RUN;i++){if(maskAt(at-along*i,horizontal)>0.5)left=i;else break;}
+ for(int i=1;i<=MAX_RUN;i++){if(maskAt(at+along*i,horizontal)>0.5)right=i;else break;}
+ float weight;
+ if(left+right>0){
+  float length=float(left+right+1);
+  float distance=float(min(left,right));
+  // 0 at the ends of the run, 1 in the middle: the pixel there sits on the step
+  // of the staircase and needs the most correction.
+  weight=0.5*clamp((distance*2.0)/max(length-1.0,1.0),0.0,1.0);
+ }else{
+  // A diagonal staircase marks one pixel per row, so the axis-aligned run is
+  // empty. Measure the run along the diagonal instead; without this branch a
+  // 45-degree edge received exactly zero correction.
+  ivec2 dir=(maskAt(at+ivec2(1,1),horizontal)>0.5||maskAt(at+ivec2(-1,-1),horizontal)>0.5)?ivec2(1,1):ivec2(1,-1);
+  int forward=0,backward=0;
+  for(int i=1;i<=MAX_RUN;i++){if(maskAt(at+dir*i,horizontal)>0.5)forward=i;else break;}
+  for(int i=1;i<=MAX_RUN;i++){if(maskAt(at-dir*i,horizontal)>0.5)backward=i;else break;}
+  float length=float(forward+backward+1);
+  float distance=float(min(forward,backward));
+  weight=0.5*clamp((distance*2.0)/max(length-1.0,1.0),0.0,1.0);
+  // A single isolated step (a 45-degree staircase pixel) still needs half of
+  // the correction a longer run would get; without this it was left untouched.
+  if(forward+backward==0)weight=0.3;
+ }
+ float m=luma(center.rgb);
+ vec4 a=texelAt(at-across),b=texelAt(at+across);
+ float la=luma(a.rgb),lb=luma(b.rgb);
+ // Blend toward the flat side (the neighbour that is closer to this pixel).
+ vec4 target=abs(la-m)>abs(lb-m)?a:b;
+ // A corner (the neighbour across is an edge too) must not smear: halve it.
+ if(maskAt(at-across,horizontal)>0.5||maskAt(at+across,horizontal)>0.5)weight*=0.5;
+ return vec4(mix(center.rgb,target.rgb,weight),center.a);
+}
+void main(){
+ ivec2 at=ivec2(gl_GlobalInvocationID.xy);
+ if(any(greaterThanEqual(at,p.size)))return;
+ vec4 mask=texelFetch(edgeMask,at,0);
+ if(mask.r>0.5)imageStore(result,at,blendAlong(at,true));
+ else if(mask.g>0.5)imageStore(result,at,blendAlong(at,false));
+ else imageStore(result,at,texelAt(at));
+}

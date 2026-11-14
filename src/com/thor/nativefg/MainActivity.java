@@ -17,14 +17,23 @@ import java.util.*;
 import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
+    // ThorQOL palette: navy background, lime accent, cyan glow.
+    static final int C_BG=0xFF10151B,C_CARD=0xFF1B202C,C_INNER=0xFF292B40,C_STROKE=0xFF375B67,
+        C_ACCENT=0xFFDCFF30,C_GLOW=0xFF20E5E5,C_TEXT=0xFFF7FFFF,C_TEXT2=0xFFB6C6D0,C_MUTED=0xFF84919D,C_RED=0xFFFF4795;
     private TextView status;
     private Button masterBtn,modeGsr2Btn,modeNeuralBtn,modeGsr1Btn,modeFgOnlyBtn;
     private Spinner packages,srModels;
-    private CheckBox upscale;
+    private CheckBox upscale,fxaaToggle,taaToggle,smaaToggle,tripleToggle;
+    private boolean syncingAa=false;
+    private boolean syncingTriple=false;
     private Switch automatic;
     private boolean syncingAuto=false;
     private boolean syncingSr=false;
     private boolean syncingModel=false;
+    private License license;
+    private AppUpdates updates;
+    private TextView versionLabel,licenseLabel,updateLabel;
+    private Button updateBtn,licenseBtn;
     private final ArrayList<String> ids=new ArrayList<>();
     private final java.util.concurrent.ExecutorService worker=Executors.newSingleThreadExecutor();
     private final String[] keys={"enable_gpu_debug_layers","gpu_debug_app","gpu_debug_layers","gpu_debug_layer_app"};
@@ -33,11 +42,19 @@ public class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
-        LinearLayout page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);page.setPadding(dp(18),dp(14),dp(18),dp(18));page.setBackgroundColor(Color.rgb(12,20,33));
+        license=new License(this);
+        updates=new AppUpdates(this,()->runOnUiThread(this::refreshUpdateRow));
+        LinearLayout page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);page.setPadding(dp(18),dp(14),dp(18),dp(18));page.setBackgroundColor(C_BG);
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.addView(page);setContentView(scroll);
 
-        TextView title=text("THOR · SR + FG (1-CHẠM)",20);title.setTextColor(Color.rgb(87,222,212));title.setTypeface(Typeface.DEFAULT_BOLD);page.addView(title);
-        TextView sub=text("Bù khung hình 120Hz & Nâng độ phân giải · Bản 0.14 RC1",12);sub.setTextColor(Color.rgb(160,182,208));page.addView(sub);
+        TextView title=text("THOR NATIVE FG",22);title.setTextColor(C_ACCENT);title.setTypeface(Typeface.DEFAULT_BOLD);page.addView(title);
+        TextView sub=text("Bù khung hình + khử răng cưa cho AYN Thor",12);sub.setTextColor(C_TEXT2);page.addView(sub);
+        versionLabel=text("",12);versionLabel.setTextColor(C_MUTED);page.addView(versionLabel);
+        try{
+            PackageInfo info=getPackageManager().getPackageInfo(getPackageName(),0);
+            long code=Build.VERSION.SDK_INT>=28?info.getLongVersionCode():info.versionCode;
+            versionLabel.setText("Phiên bản "+info.versionName+" ("+code+")");
+        }catch(Exception ignored){}
 
         // 1. Nút chính 1 chạm (BẬT / TẮT TOÀN BỘ)
         masterBtn=new Button(this);masterBtn.setAllCaps(false);masterBtn.setTextSize(16);masterBtn.setTypeface(Typeface.DEFAULT_BOLD);masterBtn.setTextColor(Color.WHITE);
@@ -49,51 +66,93 @@ public class MainActivity extends Activity {
                 runJob(()->{
                     restore();
                     runOnUiThread(()->{AutoMode.preferences(this).edit().putBoolean("hud_visible",false).apply();stopService(new Intent(this,FpsOverlayService.class));});
-                    return "Đã TẮT toàn bộ FG + SR và ẩn thanh FPS.";
+                    return "Đã TẮT toàn bộ FG + AA và ẩn thanh FPS.";
                 });
             }else{
                 final boolean sr=AutoMode.preferences(this).getBoolean("upscale",true);
                 runJob(()->{
                     String res=AutoMode.configure(this,true,sr);
                     runOnUiThread(()->showOverlay());
-                    return "Đã BẬT 1-chạm (FG 120Hz + "+(sr?AutoMode.modelLabel(this):"Tắt SR")+") và đồng bộ dữ liệu Eden.\n"+res;
+                    return "Đã BẬT 1-chạm (FG 120Hz + "+aaLabelText(AutoMode.aaMode(this))+") và đồng bộ dữ liệu Eden.\n"+res;
                 });
             }
         });
 
-        // 2. Chọn nhanh chế độ SR (1 chạm — 4 nút ngang: GSR2, Neural 2D, GSR1, Tắt SR)
-        TextView srLabel=text("Chế độ nâng nét (chạm để đổi ngay):",13);srLabel.setTextColor(Color.rgb(185,205,228));page.addView(srLabel);
+        // 1b. Bản quyền + cập nhật (cùng kiểu thẻ như ThorQOL)
+        LinearLayout serviceRow=new LinearLayout(this);serviceRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams serviceLp=new LinearLayout.LayoutParams(-1,-2);serviceLp.setMargins(0,0,0,dp(10));page.addView(serviceRow,serviceLp);
+        licenseBtn=pillButton("Bản quyền",()->openLicenseDialog());
+        updateBtn=pillButton("Cập nhật",()->openUpdateDialog());
+        addWeighted(serviceRow,licenseBtn,dp(6));
+        addWeighted(serviceRow,updateBtn,0);
+        stylePill(licenseBtn,false);stylePill(updateBtn,false);
+        licenseLabel=text("",12);licenseLabel.setTextColor(C_TEXT2);page.addView(licenseLabel);
+        updateLabel=text("",12);updateLabel.setTextColor(C_MUTED);page.addView(updateLabel);
+
+        TextView aaLabel=text("Khử răng cưa (chạm để đổi ngay):",13);aaLabel.setTextColor(Color.rgb(185,205,228));page.addView(aaLabel);
         LinearLayout srRow=new LinearLayout(this);srRow.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams rowLp=new LinearLayout.LayoutParams(-1,-2);rowLp.setMargins(0,0,0,dp(10));page.addView(srRow,rowLp);
-        modeGsr2Btn=pillButton("GSR2 (Mới)",()->selectSrModel(true,"sgsr2"));
-        modeNeuralBtn=pillButton("Neural 2D",()->selectSrModel(true,"neural2d"));
-        modeGsr1Btn=pillButton("GSR1",()->selectSrModel(true,"sgsr1"));
-        modeFgOnlyBtn=pillButton("Tắt SR",()->selectSrModel(false,AutoMode.model(this)));
+        modeGsr2Btn=pillButton("SMAA",()->selectAaMode("smaa"));
+        modeNeuralBtn=pillButton("FXAA",()->selectAaMode("fxaa"));
+        modeGsr1Btn=pillButton("Tắt AA",()->selectAaMode("off"));
         addWeighted(srRow,modeGsr2Btn,dp(6));
         addWeighted(srRow,modeNeuralBtn,dp(6));
-        addWeighted(srRow,modeGsr1Btn,dp(6));
-        addWeighted(srRow,modeFgOnlyBtn,0);
+        addWeighted(srRow,modeGsr1Btn,0);
+        page.addView(text("SMAA: khử răng cưa hình thái, giữ chữ UI sắc nét (mặc định). FXAA: rẻ hơn, hơi mờ. AA chỉ áp cho khung 2× (màn 60Hz); chế độ 3× dùng khung thô để đủ ngân sách. Cần mở lại game sau khi đổi.",12));
+        modeFgOnlyBtn=new Button(this);modeFgOnlyBtn.setVisibility(View.GONE);page.addView(modeFgOnlyBtn);
+        // The pill row above is the AA selector now; the old checkboxes stay in the
+        // layout tree (hidden) so the existing preference plumbing keeps working.
+        smaaToggle=new CheckBox(this);smaaToggle.setVisibility(View.GONE);page.addView(smaaToggle);
+        smaaToggle.setOnCheckedChangeListener((view,checked)->{
+            if(syncingAa)return;
+            if(busy){syncingAa=true;smaaToggle.setChecked(AutoMode.smaa(this));syncingAa=false;return;}
+            runJob(()->AutoMode.setSmaa(this,checked));
+            if(checked){syncingAa=true;taaToggle.setChecked(false);fxaaToggle.setChecked(false);syncingAa=false;}
+        });
+        taaToggle=new CheckBox(this);taaToggle.setVisibility(View.GONE);page.addView(taaToggle);
+        taaToggle.setOnCheckedChangeListener((view,checked)->{
+            if(syncingAa)return;
+            if(busy){syncingAa=true;taaToggle.setChecked(AutoMode.taa(this));syncingAa=false;return;}
+            runJob(()->AutoMode.setTaa(this,checked));
+            if(checked){syncingAa=true;fxaaToggle.setChecked(false);smaaToggle.setChecked(false);syncingAa=false;}
+        });
+        fxaaToggle=new CheckBox(this);fxaaToggle.setVisibility(View.GONE);page.addView(fxaaToggle);
+        fxaaToggle.setOnCheckedChangeListener((view,checked)->{
+            if(syncingAa)return;
+            if(busy){syncingAa=true;fxaaToggle.setChecked(AutoMode.fxaa(this));syncingAa=false;return;}
+            runJob(()->AutoMode.setFxaa(this,checked));
+            if(checked){syncingAa=true;taaToggle.setChecked(false);smaaToggle.setChecked(false);syncingAa=false;}
+        });
+
+        // 2b. Bù 3 khung hình (3×) — chỉ hợp với game dưới ~40 FPS trên màn 120Hz
+        tripleToggle=new CheckBox(this);tripleToggle.setText("3× tự động · màn 120Hz bù 2 khung (30→90), màn 60Hz layer tự dùng 2×");tripleToggle.setTextColor(Color.rgb(223,233,246));tripleToggle.setChecked(AutoMode.triple(this));page.addView(tripleToggle);
+        tripleToggle.setOnCheckedChangeListener((view,checked)->{
+            if(syncingTriple)return;
+            if(busy){syncingTriple=true;tripleToggle.setChecked(AutoMode.triple(this));syncingTriple=false;return;}
+            runJob(()->AutoMode.setTriple(this,checked));
+        });
+        page.addView(text("Layer tự dò nhịp thật của màn hình: 60Hz thì chỉ bù 1 khung (2×), 120Hz thì bù 2 khung (3×) sau khi thử và xác nhận khung sinh thực sự lên màn hình. Bật/tắt ngay khi game đang chạy. Bỏ chọn nếu muốn ép chỉ dùng 2×.",12));
 
         // 3. Mở nhanh Game / Giả lập (1 chạm: tự bật + mở app)
-        TextView launchLabel=text("Mở nhanh giả lập (1 chạm tự bật FG/SR & vào thẳng):",13);launchLabel.setTextColor(Color.rgb(185,205,228));page.addView(launchLabel);
+        TextView launchLabel=text("Mở nhanh giả lập (1 chạm tự bật FG + AA & vào thẳng):",13);launchLabel.setTextColor(Color.rgb(185,205,228));page.addView(launchLabel);
         LinearLayout launchRow=new LinearLayout(this);launchRow.setOrientation(LinearLayout.HORIZONTAL);page.addView(launchRow,rowLp);
-        Button edenThorBtn=actionButton("🎮 Eden Thor (SR+FG)",Color.rgb(25,92,118),()->quickLaunch("dev.eden.eden_emulator.relWithDebInfo"));
-        Button edenNightlyBtn=actionButton("🎮 Eden Nightly",Color.rgb(34,68,105),()->quickLaunch("dev.eden.eden_emulator.nightly"));
-        Button droidDeckBtn=actionButton("💻 DroidDeck (PC)",Color.rgb(52,62,96),()->quickLaunch("com.droiddeck.launcher"));
+        Button edenThorBtn=actionButton("🎮 Eden Thor (AA+FG)",C_INNER,()->quickLaunch("dev.eden.eden_emulator.relWithDebInfo"));
+        Button edenNightlyBtn=actionButton("🎮 Eden Nightly",C_CARD,()->quickLaunch("dev.eden.eden_emulator.nightly"));
+        Button droidDeckBtn=actionButton("💻 DroidDeck (PC)",C_CARD,()->quickLaunch("com.droiddeck.launcher"));
         addWeighted(launchRow,edenThorBtn,dp(6));
         addWeighted(launchRow,edenNightlyBtn,dp(6));
         addWeighted(launchRow,droidDeckBtn,0);
 
         // 4. Thanh công cụ phụ (Hiện/Ẩn FPS, Kiểm tra trạng thái, Tùy chọn nâng cao)
         LinearLayout utilRow=new LinearLayout(this);utilRow.setOrientation(LinearLayout.HORIZONTAL);page.addView(utilRow,rowLp);
-        Button fpsToggleBtn=actionButton("Hiện / Ẩn FPS",Color.rgb(30,45,68),()->{
+        Button fpsToggleBtn=actionButton("Hiện / Ẩn FPS",C_CARD,()->{
             boolean vis=AutoMode.preferences(this).getBoolean("hud_visible",false);
             if(vis){AutoMode.preferences(this).edit().putBoolean("hud_visible",false).apply();stopService(new Intent(this,FpsOverlayService.class));status.setText("Đã ẩn thanh FPS ngang.");}
-            else{showOverlay();status.setText("Đã bật thanh FPS ngang: Gốc | FG | SR.");}
+            else{showOverlay();status.setText("Đã bật thanh FPS: Gốc | FG | AA | nhiệt độ.");}
         });
-        Button checkBtn=actionButton("Kiểm tra FG + SR",Color.rgb(30,45,68),()->runJob(()->readStatus(false)));
+        Button checkBtn=actionButton("Kiểm tra FG + AA",C_CARD,()->runJob(()->readStatus(false)));
         LinearLayout advanced=new LinearLayout(this);advanced.setOrientation(LinearLayout.VERTICAL);advanced.setVisibility(View.GONE);
-        Button moreBtn=actionButton("Tùy chọn khác ▾",Color.rgb(30,45,68),null);
+        Button moreBtn=actionButton("Tùy chọn khác ▾",C_CARD,null);
         moreBtn.setOnClickListener(v->{boolean open=advanced.getVisibility()!=View.VISIBLE;advanced.setVisibility(open?View.VISIBLE:View.GONE);moreBtn.setText(open?"Thu gọn ▴":"Tùy chọn khác ▾");});
         addWeighted(utilRow,fpsToggleBtn,dp(6));
         addWeighted(utilRow,checkBtn,dp(6));
@@ -107,12 +166,12 @@ public class MainActivity extends Activity {
 
         // Khu vực nâng cao (ẩn mặc định)
         page.addView(advanced);
-        advanced.addView(text("Chọn ứng dụng bất kỳ để mở cùng FG + SR:",13));
+        advanced.addView(text("Chọn ứng dụng bất kỳ để mở cùng FG + AA:",13));
         packages=new Spinner(this);loadPackages();advanced.addView(packages);
-        upscale=new CheckBox(this);upscale.setText("Bật upscale từ ảnh render thấp");upscale.setTextColor(Color.rgb(223,233,246));upscale.setChecked(AutoMode.preferences(this).getBoolean("upscale",true));advanced.addView(upscale);
+        upscale=new CheckBox(this);upscale.setVisibility(View.GONE);upscale.setText("Bật upscale từ ảnh render thấp");upscale.setTextColor(Color.rgb(223,233,246));upscale.setChecked(AutoMode.preferences(this).getBoolean("upscale",true));advanced.addView(upscale);
         upscale.setOnCheckedChangeListener((view,checked)->{if(!syncingSr)selectSrModel(checked,AutoMode.model(this));});
-        srModels=new Spinner(this);
-        srModels.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"GSR 2 · Temporal 9-tap (Khuyên dùng)","Neural 2D · giảm viền","GSR 1 · lọc không gian"}));
+        srModels=new Spinner(this);srModels.setVisibility(View.GONE);
+        srModels.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"Spatial 9-tap · chặn viền sáng","Neural 2D · giảm viền","GSR 1 · nhẹ, mặc định"}));
         String curModel=AutoMode.model(this);
         srModels.setSelection("neural2d".equals(curModel)?1:("sgsr1".equals(curModel)?2:0));advanced.addView(srModels);
         srModels.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){
@@ -126,22 +185,34 @@ public class MainActivity extends Activity {
         button(advanced,"Bật & Mở ứng dụng đang chọn ở danh sách trên",()->enableSelected());
         button(advanced,"Danh sách game tự động",()->editAutoApplications());
         button(advanced,"Đồng bộ lại Save + Driver Eden Nightly → Eden Thor",()->runJob(()->{RootShell.runMaster(AutoMode.syncEdenScript());return "Đã đồng bộ chung thư mục gốc (save game, driver, cấu hình, danh sách game) từ Eden Nightly sang Eden Thor.";}));
-        button(advanced,"DroidDeck · dùng SR của Thor (GSR1/Neural 2D)",()->runJob(()->DroidDeckPreset.change(this,false)));
+        button(advanced,"DroidDeck · dùng scaler trong game",()->runJob(()->DroidDeckPreset.change(this,false)));
         button(advanced,"DroidDeck · dùng SGSR2 trong game (DLSS/FSR2)",()->runJob(()->DroidDeckPreset.change(this,true)));
         button(advanced,"Xem log kỹ thuật",()->runJob(()->readStatus(true)));
-        button(advanced,"Chạy cảnh mẫu GSR 1 + FG",()->startActivity(new Intent(this,DemoActivity.class)));
+        button(advanced,"Chạy cảnh mẫu AA + FG",()->startActivity(new Intent(this,DemoActivity.class)));
 
         String previous=AutoMode.preferences(this).getString("selected_package","");for(int i=0;i<ids.size();i++)if(ids.get(i).equals(previous)){packages.setSelection(i);break;}
         refreshUiState();
+        AppUpdates.autoCheck(this);
         if(getIntent().getBooleanExtra("demo",false)){Intent demo=new Intent(this,DemoActivity.class);demo.putExtra("mode",getIntent().getIntExtra("mode",2));startActivity(demo);}
         if(getIntent().getBooleanExtra("hud",false)||(AutoMode.requested(this)&&AutoMode.preferences(this).getBoolean("hud_visible",false)&&Settings.canDrawOverlays(this)))showOverlay();
     }
 
     private int dp(int v){return Math.round(v*getResources().getDisplayMetrics().density);}
-    private TextView text(String value,int size){TextView v=new TextView(this);v.setText(value);v.setTextSize(size);v.setTextColor(Color.rgb(223,233,246));v.setPadding(0,dp(3),0,dp(5));return v;}
-    private void button(LinearLayout page,String label,Runnable action){Button b=new Button(this);b.setText(label);b.setAllCaps(false);b.setTextSize(13);page.addView(b);b.setOnClickListener(v->{if(!busy)action.run();});}
+    @Override protected void onResume(){
+        super.onResume();
+        // debug.* properties do not survive a reboot, and a manual setprop can
+        // leave them out of sync with the saved switch. Re-apply quietly so the
+        // checkbox never claims a mode the layer is not actually in.
+        if(busy)return;
+        final boolean want=AutoMode.triple(this);
+        worker.execute(()->{
+            try{String current=root("getprop debug.thorfg.triple");boolean allowed=!"0".equals(current);if(allowed!=want)AutoMode.setTriple(this,want);}catch(Exception ignored){}
+        });
+    }
+    private TextView text(String value,int size){TextView v=new TextView(this);v.setText(value);v.setTextSize(size);v.setTextColor(C_TEXT);v.setPadding(0,dp(3),0,dp(5));return v;}
+    private void button(LinearLayout page,String label,Runnable action){Button b=new Button(this);b.setText(label);b.setAllCaps(false);b.setTextSize(13);b.setTextColor(C_TEXT2);GradientDrawable bg=new GradientDrawable();bg.setColor(C_CARD);bg.setCornerRadius(dp(8));bg.setStroke(dp(1),C_STROKE);b.setBackground(bg);page.addView(b);b.setOnClickListener(v->{if(!busy)action.run();});}
     private Button pillButton(String label,Runnable action){
-        Button b=new Button(this);b.setText(label);b.setAllCaps(false);b.setTextSize(13);b.setTextColor(Color.WHITE);
+        Button b=new Button(this);b.setText(label);b.setAllCaps(false);b.setTextSize(13);b.setTextColor(C_TEXT);
         b.setOnClickListener(v->{if(!busy)action.run();});return b;
     }
     private Button actionButton(String label,int bgColor,Runnable action){
@@ -155,28 +226,47 @@ public class MainActivity extends Activity {
     }
     private void stylePill(Button btn,boolean active){
         GradientDrawable bg=new GradientDrawable();
-        bg.setColor(active?Color.rgb(22,126,118):Color.rgb(26,38,56));
+        bg.setColor(active?C_ACCENT:C_CARD);
         bg.setCornerRadius(dp(8));
-        bg.setStroke(dp(1),active?Color.rgb(87,222,212):Color.rgb(48,66,92));
+        bg.setStroke(dp(1),active?C_ACCENT:C_STROKE);
         btn.setBackground(bg);
+        btn.setTextColor(active?0xFF10151B:C_TEXT);
         btn.setTypeface(active?Typeface.DEFAULT_BOLD:Typeface.DEFAULT);
     }
     private void refreshUiState(){
+        syncingAa=true;fxaaToggle.setChecked(AutoMode.fxaa(this));taaToggle.setChecked(AutoMode.taa(this));smaaToggle.setChecked(AutoMode.smaa(this));syncingAa=false;
+        syncingTriple=true;tripleToggle.setChecked(AutoMode.triple(this));syncingTriple=false;
         boolean on=AutoMode.requested(this);
         boolean sr=AutoMode.preferences(this).getBoolean("upscale",true);
-        String m=AutoMode.model(this);
+        String aa=AutoMode.aaMode(this);
         GradientDrawable mBg=new GradientDrawable();
-        mBg.setColor(on?Color.rgb(142,43,43):Color.rgb(20,126,110));
+        mBg.setColor(on?0xFF3A1620:C_ACCENT);
         mBg.setCornerRadius(dp(10));
+        mBg.setStroke(dp(1),on?C_RED:C_GLOW);
         masterBtn.setBackground(mBg);
-        masterBtn.setText(on?"⏹ ĐANG BẬT (FG 120Hz + "+(sr?AutoMode.modelLabel(this):"Tắt SR")+") · CHẠM ĐỂ TẮT":"⚡ 1 CHẠM: BẬT NGAY (FG 120Hz + "+AutoMode.modelLabel(this)+" + FPS)");
-        stylePill(modeGsr2Btn,sr&&"sgsr2".equals(m));
-        stylePill(modeNeuralBtn,sr&&"neural2d".equals(m));
-        stylePill(modeGsr1Btn,sr&&"sgsr1".equals(m));
-        stylePill(modeFgOnlyBtn,!sr);
+        masterBtn.setTextColor(on?C_TEXT:0xFF10151B);
+        masterBtn.setText(on?"⏹ ĐANG BẬT (FG 120Hz + "+aaLabelText(aa)+") · CHẠM ĐỂ TẮT":"⚡ 1 CHẠM: BẬT NGAY (FG 120Hz + "+aaLabelText(aa)+" + FPS)");
+        stylePill(modeGsr2Btn,"smaa".equals(aa));
+        stylePill(modeNeuralBtn,"fxaa".equals(aa));
+        stylePill(modeGsr1Btn,"off".equals(aa));
+        stylePill(modeFgOnlyBtn,false);
         syncAutoSwitch();
         syncingSr=true;upscale.setChecked(sr);syncingSr=false;
-        syncingModel=true;srModels.setSelection("neural2d".equals(m)?1:("sgsr1".equals(m)?2:0));syncingModel=false;
+        // The SR model spinner stays hidden: the layer no longer upscales, the
+        // emulator app owns that now and the pills above select the AA mode.
+        refreshLicenseRow();refreshUpdateRow();applyLicenseGate();
+    }
+    private static String aaLabelText(String aa){
+        if("smaa".equals(aa))return "SMAA";
+        return "fxaa".equals(aa)?"FXAA":"Tắt AA";
+    }
+    private void selectAaMode(String mode){
+        runJob(()->{
+            AutoMode.setSmaa(this,"smaa".equals(mode));
+            AutoMode.setFxaa(this,"fxaa".equals(mode));
+            runOnUiThread(this::refreshUiState);
+            return "Đã chọn khử răng cưa: "+aaLabelText(mode)+". Mở lại game để áp dụng (chỉ khung 2×).";
+        });
     }
     private void selectSrModel(boolean enableSr,String modelName){
         AutoMode.preferences(this).edit().putBoolean("upscale",enableSr).putString("sr_model",modelName).putBoolean("neural_sr","neural2d".equals(modelName)).apply();
@@ -250,7 +340,7 @@ public class MainActivity extends Activity {
     }
     private void restore()throws Exception{
         AutoMode.configure(this,false,upscale.isChecked());
-        root("setprop debug.thorfg.enabled 0; setprop debug.thorfg.sr 0; setprop debug.thorfg.target ''; settings delete global enable_gpu_debug_layers >/dev/null 2>&1 || true; settings delete global gpu_debug_app >/dev/null 2>&1 || true; settings delete global gpu_debug_layers >/dev/null 2>&1 || true; settings delete global gpu_debug_layer_app >/dev/null 2>&1 || true");
+        root("setprop debug.thorfg.enabled 0; setprop debug.thorfg.sr 0; setprop debug.thorfg.target ''; setprop debug.thorfg.triple 0; settings delete global enable_gpu_debug_layers >/dev/null 2>&1 || true; settings delete global gpu_debug_app >/dev/null 2>&1 || true; settings delete global gpu_debug_layers >/dev/null 2>&1 || true; settings delete global gpu_debug_layer_app >/dev/null 2>&1 || true");
         if(backup().exists())backup().delete();
     }
     private String readStatus(boolean includeLogs)throws Exception{
@@ -273,9 +363,129 @@ public class MainActivity extends Activity {
         }
         RuntimeMetrics latest=null;for(String line:logs.split("\\r?\\n")){RuntimeMetrics value=RuntimeMetrics.parse(line,SystemClock.elapsedRealtime());if(value!=null&&value.pid==Integer.parseInt(pid))latest=value;}
         String detailText=latest!=null?(extSr.isEmpty()?latest.detail():extSr+" ON"):"";
-        String summary=latest!=null&&latest.fresh(SystemClock.elapsedRealtime())?latest.hud(extSr)+"\n"+detailText:"Đang chờ khung hình Vulkan từ game…";
+        String summary=latest!=null&&latest.fresh(SystemClock.elapsedRealtime())?latest.fpsOnly()+"\n"+detailText:"Đang chờ khung hình Vulkan từ game…";
         if(!includeLogs)return summary+"\n\nỨng dụng: "+target;
         return summary+"\n\nTarget / active / PID:\n"+config+"\n"+pid+"\n\n"+logs;
+    }
+    // ---- Cập nhật & bản quyền -------------------------------------------------
+    private LinearLayout card(){
+        LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable bg=new GradientDrawable();bg.setColor(C_CARD);bg.setCornerRadius(dp(12));bg.setStroke(dp(1),C_STROKE);
+        box.setBackground(bg);int pad=dp(12);box.setPadding(pad,pad,pad,pad);
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(10));box.setLayoutParams(lp);
+        return box;
+    }
+
+    private void refreshLicenseRow(){
+        if(licenseLabel==null||license==null)return;
+        License.Status status=license.status();
+        licenseLabel.setText(status.label()+("".equals(status.detail)?"":" · "+status.detail));
+        licenseLabel.setTextColor(status.usable()?C_ACCENT:C_MUTED);
+        if(licenseBtn!=null)licenseBtn.setText(status.licensed()?"Bản quyền: FULL":(status.state==License.State.TRIAL?"Bản quyền: dùng thử":"Bản quyền"));
+    }
+
+    void refreshUpdateRow(){
+        if(updateLabel==null||updates==null)return;
+        String state;
+        switch(updates.state){
+            case AppUpdates.CHECKING:state="đang kiểm tra";break;
+            case AppUpdates.CURRENT:state="mới nhất";break;
+            case AppUpdates.AVAILABLE:state="có bản "+updates.version;break;
+            case AppUpdates.DOWNLOADING:state=updates.total>0?(100*updates.done/updates.total)+"%":"đang tải";break;
+            case AppUpdates.VERIFYING:state="đang xác minh";break;
+            case AppUpdates.READY:state="sẵn sàng cài "+updates.version;break;
+            case AppUpdates.ERROR:state="lỗi";break;
+            default:state="chưa kiểm tra";
+        }
+        String text="Cập nhật: "+state;
+        if(updates.message!=null&&!updates.message.isEmpty())text+=" · "+updates.message;
+        updateLabel.setText(text);
+        updateLabel.setTextColor(updates.state==AppUpdates.ERROR?C_RED:(updates.state==AppUpdates.READY?C_ACCENT:C_MUTED));
+        if(updateBtn!=null)updateBtn.setText(AppUpdates.hasUpdate(this)?"Cập nhật ●":"Cập nhật");
+    }
+
+    void openUpdateDialog(){
+        LinearLayout box=card();
+        TextView info=text("",13);info.setTextColor(C_TEXT2);box.addView(info);
+        ProgressBar bar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
+        bar.setMax(100);bar.setProgress(0);box.addView(bar);
+        LinearLayout actions=new LinearLayout(this);actions.setOrientation(LinearLayout.HORIZONTAL);
+        Button check=pillButton("Kiểm tra",()->{updates.check();});
+        Button download=pillButton("Tải",()->{updates.download();});
+        Button install=pillButton("Cài",()->{updates.install(this);});
+        addWeighted(actions,check,dp(6));
+        addWeighted(actions,download,dp(6));
+        addWeighted(actions,install,0);
+        box.addView(actions);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Cập nhật qua git")
+            .setView(box).setNegativeButton("Đóng",null).create();
+        final android.os.Handler handler=new android.os.Handler(Looper.getMainLooper());
+        final Runnable[] tick=new Runnable[1];
+        tick[0]=()->{
+            if(!dialog.isShowing())return;
+            String current=updates.installedVersion();
+            String text=updates.message==null?"":updates.message;
+            switch(updates.state){
+                case AppUpdates.CURRENT:text="Bạn đang dùng "+current+", mới nhất.";break;
+                case AppUpdates.AVAILABLE:text="Có bản "+updates.version+" (đang dùng "+current+").";break;
+                case AppUpdates.READY:text="Đã tải và xác minh bản "+updates.version+". Bấm Cài.";break;
+                default:break;
+            }
+            info.setText(text+("\n\n"+(updates.notes==null?"":updates.notes)));
+            bar.setProgress(updates.total>0?(int)(100*updates.done/updates.total):0);
+            check.setEnabled(!updates.busy());
+            download.setEnabled(updates.state==AppUpdates.AVAILABLE);
+            install.setEnabled(updates.state==AppUpdates.READY);
+            stylePill(download,download.isEnabled());
+            stylePill(install,install.isEnabled());
+            handler.postDelayed(tick[0],400);
+        };
+        dialog.setOnShowListener(d->{tick[0].run();});
+        dialog.setOnDismissListener(d->handler.removeCallbacks(tick[0]));
+        dialog.show();
+        if(updates.state==AppUpdates.IDLE)updates.check();
+    }
+
+    void openLicenseDialog(){
+        LinearLayout box=card();
+        License.Status status=license.status();
+        TextView info=text(status.label()+"\n"+status.detail+"\n"+license.describeDevice(),13);
+        info.setTextColor(status.usable()?C_ACCENT:C_MUTED);box.addView(info);
+        EditText input=new EditText(this);
+        input.setHint("Dán key THORFG1…");
+        input.setTextColor(C_TEXT);input.setHintTextColor(C_MUTED);
+        box.addView(input);
+        LinearLayout actions=new LinearLayout(this);actions.setOrientation(LinearLayout.HORIZONTAL);
+        Button activate=pillButton("Kích hoạt",()->{
+            License.Status result=license.activate(input.getText().toString());
+            info.setText(result.label()+"\n"+result.detail+"\n"+license.describeDevice());
+            info.setTextColor(result.usable()?C_ACCENT:C_RED);
+            refreshLicenseRow();applyLicenseGate();
+            toast(result.licensed()?"Đã kích hoạt bản quyền.":result.detail);
+        });
+        Button buy=pillButton("Mua",()->startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(license.shopUrl()))));
+        Button clear=pillButton("Xoá key",()->{license.clear();refreshLicenseRow();applyLicenseGate();toast("Đã xoá key trên máy.");});
+        addWeighted(actions,activate,dp(6));
+        addWeighted(actions,buy,dp(6));
+        addWeighted(actions,clear,0);
+        box.addView(actions);
+        if(!license.enforced()){box.addView(text("Bản build này chưa bật chặn bản quyền — key chỉ để hiển thị trạng thái.",11));}
+        new AlertDialog.Builder(this).setTitle("Bản quyền Thor Native FG").setView(box).setNegativeButton("Đóng",null).show();
+    }
+
+    /** Blocks the one-tap master switch only when the build enforces licensing. */
+    private void applyLicenseGate(){
+        if(license==null||masterBtn==null)return;
+        if(!license.enforced())return;
+        License.Status licence=license.status();
+        if(licence.usable())return;
+        AutoMode.preferences(this).edit().putBoolean("locked_by_license",true).apply();
+        masterBtn.setEnabled(false);
+        if(status!=null)status.setText("Cần bản quyền: "+licence.label()+" — bấm “Bản quyền” để kích hoạt.");
+    }
+
+    private void toast(String message){
+        try{Toast.makeText(this,message,Toast.LENGTH_SHORT).show();}catch(Exception ignored){}
     }
     interface Work {String run()throws Exception;}
     private void runJob(Work work){busy=true;masterBtn.setEnabled(false);modeNeuralBtn.setEnabled(false);modeGsr1Btn.setEnabled(false);modeFgOnlyBtn.setEnabled(false);status.setText("Đang áp dụng…");worker.execute(()->{String result;try{result=work.run();}catch(Exception e){result="Lỗi: "+e.getMessage();}final String value=result;runOnUiThread(()->{busy=false;masterBtn.setEnabled(true);modeNeuralBtn.setEnabled(true);modeGsr1Btn.setEnabled(true);modeFgOnlyBtn.setEnabled(true);refreshUiState();status.setText(value);});});}

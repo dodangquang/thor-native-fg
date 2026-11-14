@@ -4,6 +4,10 @@ setprop sys.thorfg.bootstrap 3
 THOR_CONFIG=/data/adb/thor-native-fg/auto.conf
 setprop debug.thorfg.auto 0
 setprop debug.thorfg.auto_sr 0
+# debug.* is not persistent: restore the user's 3x choice saved by the
+# controller so a reboot cannot silently fall back to 2x.
+setprop debug.thorfg.triple 0
+if [ "$(getprop persist.thorfg.triple)" = 1 ]; then setprop debug.thorfg.triple 1; fi
 if [ -f "$THOR_CONFIG" ] && grep -qx 'enabled=1' "$THOR_CONFIG"; then
   provider_path=$(sed -n 's/^provider=//p' "$THOR_CONFIG")
   if [ ! -f "$provider_path/libVkLayer_ThorFG.so" ]; then

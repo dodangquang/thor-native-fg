@@ -2,6 +2,7 @@
 #extension GL_GOOGLE_include_directive : require
 #include "neural_bounds.glsl"
 // Anime4K CNN S residual/PixelShuffle adapter. Preserve source alpha separately.
+// ENHANCED for DLSS-like quality: edge-aware reconstruction, better anti-ringing
 // MIT License
 // Copyright (c) 2019-2021 bloc97
 // All rights reserved.
@@ -25,12 +26,71 @@ layout(binding=0) uniform sampler2D inputImage;
 layout(binding=1,rgba8) uniform writeonly image2D outputImage;
 layout(binding=2) uniform sampler2D sourceImage;
 layout(push_constant) uniform Params {ivec2 size;int bounded;} p;
+
+// Enhanced edge detection for better reconstruction
+float edgeStrength(vec2 uv, vec2 texelSize) {
+    vec3 c = textureLod(sourceImage, uv, 0).rgb;
+    vec3 l = textureLod(sourceImage, uv + vec2(-texelSize.x, 0), 0).rgb;
+    vec3 r = textureLod(sourceImage, uv + vec2(texelSize.x, 0), 0).rgb;
+    vec3 t = textureLod(sourceImage, uv + vec2(0, -texelSize.y), 0).rgb;
+    vec3 b = textureLod(sourceImage, uv + vec2(0, texelSize.y), 0).rgb;
+    
+    float gradX = length(r - l);
+    float gradY = length(b - t);
+    return sqrt(gradX * gradX + gradY * gradY);
+}
+
+// Adaptive anti-ringing based on local gradient
+vec3 adaptiveBounds(vec3 color, vec2 uv, ivec2 at, ivec2 outputSize, float edge) {
+    // Standard bounds from neural_bounds.glsl
+    vec3 bounded = sourceBounds(color, sourceImage, at, outputSize);
+    
+    // On strong edges, allow more deviation from source for better detail
+    // On flat regions, clamp tightly to avoid ringing artifacts
+    float edgeFactor = clamp(edge * 2.0, 0.0, 1.0);
+    
+    // Mix between tight clamping (flat) and relaxed clamping (edges)
+    return mix(bounded, color, edgeFactor * 0.3);
+}
+
 void main(){
- ivec2 at=ivec2(gl_GlobalInvocationID.xy);if(any(greaterThanEqual(at,p.size*2)))return;
- int phase=(at.y%2)*2+at.x%2;
- float residual=texelFetch(inputImage,at/2,0)[phase];
- vec2 uv=(vec2(at)+0.5)/vec2(p.size*2);
- vec4 source=textureLod(sourceImage,uv,0);vec3 color=source.rgb+residual;
- if(p.bounded!=0)color=sourceBounds(color,sourceImage,at,p.size*2);
- imageStore(outputImage,at,vec4(color,source.a));
+    ivec2 at = ivec2(gl_GlobalInvocationID.xy);
+    if(any(greaterThanEqual(at, p.size*2))) return;
+    
+    // PixelShuffle: unpack 4 channels into 2x2 output pixels
+    int phase = (at.y % 2) * 2 + at.x % 2;
+    float residual = texelFetch(inputImage, at/2, 0)[phase];
+    
+    vec2 uv = (vec2(at) + 0.5) / vec2(p.size * 2);
+    vec2 texelSize = 1.0 / vec2(p.size * 2);
+    
+    // Sample source with bilinear for better quality
+    vec4 source = textureLod(sourceImage, uv, 0);
+    
+    // Detect edge strength for adaptive processing
+    float edge = edgeStrength(uv, texelSize);
+    
+    // Apply residual from neural network
+    vec3 color = source.rgb + residual;
+    
+    // Adaptive anti-ringing based on edge detection
+    if (p.bounded != 0) {
+        color = adaptiveBounds(color, uv, at, p.size * 2, edge);
+    }
+    
+    // Local contrast enhancement for better sharpness on edges
+    // But only on actual edges, not flat regions
+    if (edge > 0.1) {
+        // Subtle local contrast boost
+        vec3 localMean = source.rgb;
+        vec3 contrast = (color - localMean) * 1.08;
+        color = localMean + contrast;
+        
+        // Re-clamp after contrast boost
+        if (p.bounded != 0) {
+            color = sourceBounds(color, sourceImage, at, p.size * 2);
+        }
+    }
+    
+    imageStore(outputImage, at, vec4(color, source.a));
 }

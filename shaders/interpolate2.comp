@@ -1,0 +1,88 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Two temporal positions in one dispatch (3x). The refinement loop, the
+// endpoint-consistency gate, the static-patch test and the match-cost read are
+// identical for both phases, so fusing them removes one full-resolution
+// dispatch and one read of flow/cost/current per pixel. The per-phase math is
+// the same as interpolate.comp, so a single phase still matches it exactly.
+layout(local_size_x=8,local_size_y=8) in;
+layout(binding=0) uniform sampler2D prevFrame;
+layout(binding=1) uniform sampler2D currFrame;
+layout(binding=2) uniform sampler2D flowImage;
+layout(binding=3,rgba8) uniform writeonly image2D result;
+#define THOR_QUALITY_BINDING 4
+#include "quality.glsl"
+layout(binding=5) uniform sampler2D costImage;
+layout(binding=6,rgba8) uniform writeonly image2D result2;
+layout(push_constant) uniform Params { ivec2 inputSize; ivec2 gridSize; float phase0; float phase1; int history; } p;
+float channelMax(vec3 v){return max(max(v.r,v.g),v.b);}
+vec4 midpoint(ivec2 at,vec2 uv,vec4 current,vec4 flow,vec2 matchCost,float phase,bool stationary,float gate){
+  vec4 color=current;
+  float tWarp=clamp(phase,0.0f,1.0f);
+  vec2 aUV=uv-tWarp*flow.xy,bUV=uv-(1.0-tWarp)*flow.zw;
+  // Flow is attached to each endpoint, not to the output time. Refine the
+  // inverse mapping before sampling instead of assigning a neighbouring
+  // object's block motion directly to this output pixel.
+  for(int i=0;i<2;i++){
+    aUV=uv-tWarp*textureLod(flowImage,aUV,0).xy;
+    bUV=uv-(1.0-tWarp)*textureLod(flowImage,bUV,0).zw;
+  }
+  vec4 a=textureLod(prevFrame,aUV,0),b=textureLod(currFrame,bUV,0);
+  vec2 forward=textureLod(flowImage,aUV,0).xy;
+  vec2 reverse=textureLod(flowImage,bUV,0).zw;
+  float consistency=length((forward+reverse)*vec2(p.gridSize*8));
+  bool bounds=all(greaterThanEqual(aUV,vec2(0)))&&all(lessThanEqual(aUV,vec2(1)))&&all(greaterThanEqual(bUV,vec2(0)))&&all(lessThanEqual(bUV,vec2(1)));
+  float mismatch=channelMax(abs(a.rgb-b.rgb));
+  float conf=1.0-smoothstep(0.6,1.8,consistency);
+  conf*=1.0-smoothstep(0.05,0.2,mismatch);
+  conf*=1.0-smoothstep(0.035,0.100,max(matchCost.x,matchCost.y));
+  if(bounds && !stationary && conf>1e-4){
+    float denom=max(channelMax(a.rgb)+channelMax(b.rgb),1e-3);
+    float bias=0.15f*(channelMax(b.rgb)-channelMax(a.rgb))/denom;
+    bias*=1.0f-smoothstep(0.02f,0.15f,mismatch);
+    float t=clamp(phase+bias,phase-0.1f,phase+0.1f);
+    color=mix(current,vec4(mix(a.rgb,b.rgb,t),mix(a.a,b.a,t)),conf*gate);
+  }
+  return color;
+}
+// Joint bilateral flow upsampling. A neighbouring block whose colour differs
+// from this pixel belongs to another object, so its motion must not bleed across
+// the edge: that bleed is what makes the generated frame tear along a fast pan.
+vec4 flowNear(vec2 uv,vec3 color){
+  vec2 g=uv*vec2(p.gridSize)-0.5;
+  ivec2 base=ivec2(floor(g));
+  vec2 f=g-vec2(base);
+  vec4 acc=vec4(0.0);float wsum=0.0;
+  for(int j=0;j<2;j++)for(int i=0;i<2;i++){
+    ivec2 cell=clamp(base+ivec2(i,j),ivec2(0),p.gridSize-1);
+    vec2 cuv=(vec2(cell)+0.5)/vec2(p.gridSize);
+    vec3 d=textureLod(currFrame,cuv,0).rgb-color;
+    float w=(i==0?1.0-f.x:f.x)*(j==0?1.0-f.y:f.y);
+    w*=exp(-dot(d,d)*80.0);
+    acc+=textureLod(flowImage,cuv,0)*w;wsum+=w;
+  }
+  return wsum>1e-5?acc/wsum:textureLod(flowImage,uv,0);
+}void main(){
+  ivec2 at=ivec2(gl_GlobalInvocationID.xy); if(any(greaterThanEqual(at,p.inputSize)))return;
+  vec2 uv=(vec2(at)+0.5)/vec2(p.inputSize); vec4 current=textureLod(currFrame,uv,0);
+  if(p.history==0){imageStore(result,at,current);imageStore(result2,at,current);return;}
+  // Same reduced-interpolation fallback as the single-phase shader: only a cut
+  // keeps the duplicate, other rejects keep 45% of the motion.
+  float gate=1.0;
+  if(stats.allow==0u){
+    float coarseBlocks=max(float(p.gridSize.x)*float(p.gridSize.y)/4.0,1.0);
+    float validFraction=float(stats.valid)/coarseBlocks;
+    bool trueCut=(stats.reasons&1u)!=0u&&validFraction<0.55;
+    gate=trueCut?0.0:0.45;
+  }
+  if(gate<=0.0){imageStore(result,at,current);imageStore(result2,at,current);return;}
+  vec4 flow=flowNear(uv,current.rgb);
+  vec2 matchCost=textureLod(costImage,uv,0).xy;
+  // Exact unchanged RGB wins over a neighbouring block's motion, exactly as in
+  // the single-phase shader; the test reads the same pixels for both phases.
+  vec4 previous=texelFetch(prevFrame,at,0),currentTexel=texelFetch(currFrame,at,0);
+  // Same static-content tolerance as the single-phase shader.
+ bool stationary=max(channelMax(abs(previous.rgb-currentTexel.rgb)),abs(previous.a-currentTexel.a))<4.0/255.0;
+  imageStore(result,at,midpoint(at,uv,current,flow,matchCost,p.phase0,stationary,gate));
+  imageStore(result2,at,midpoint(at,uv,current,flow,matchCost,p.phase1,stationary,gate));
+}

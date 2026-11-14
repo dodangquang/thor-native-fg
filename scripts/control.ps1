@@ -17,6 +17,7 @@ if($Action -eq 'Enable'){
   $previous=[ordered]@{};foreach($key in $keys){$previous[$key]=Adb @('shell','settings','get','global',$key)}
   $previous.thor_enabled=Adb @('shell','getprop','debug.thorfg.enabled');$previous.thor_target=Adb @('shell','getprop','debug.thorfg.target')
   $previous.thor_sr=Adb @('shell','getprop','debug.thorfg.sr')
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $backup) | Out-Null
   $previous | ConvertTo-Json | Set-Content -LiteralPath $backup
  }
  $null=Adb @('shell','settings','put','global','enable_gpu_debug_layers','1')

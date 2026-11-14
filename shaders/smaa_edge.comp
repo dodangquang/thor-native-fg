@@ -1,0 +1,36 @@
+#version 450
+// SMAA pass 1: morphological edge detection (J. Jimenez et al., "SMAA").
+// Writes a mask instead of blending directly: the blend pass needs to know
+// where an edge continues, which is only reliable from a global mask.
+//   R = horizontal line (runs along x, content differs above/below)
+//   G = vertical line   (runs along y, content differs left/right)
+layout(local_size_x=8,local_size_y=8) in;
+layout(binding=0) uniform sampler2D source;
+layout(binding=1,rgba8) uniform writeonly image2D edges;
+layout(push_constant) uniform Params { ivec2 size; } p;
+float luma(vec3 color){return dot(color,vec3(0.299,0.587,0.114));}
+float lumaAt(ivec2 at){return luma(texelFetch(source,clamp(at,ivec2(0),p.size-1),0).rgb);}
+void main(){
+ ivec2 at=ivec2(gl_GlobalInvocationID.xy);
+ if(any(greaterThanEqual(at,p.size)))return;
+ float c=lumaAt(at);
+ float l=lumaAt(at+ivec2(-1,0)),ll=lumaAt(at+ivec2(-2,0));
+ float r=lumaAt(at+ivec2( 1,0)),rr=lumaAt(at+ivec2( 2,0));
+ float u=lumaAt(at+ivec2(0,-1)),uu=lumaAt(at+ivec2(0,-2));
+ float d=lumaAt(at+ivec2(0, 1)),dd=lumaAt(at+ivec2(0, 2));
+ // Local contrast adaptation: a dark scene needs a smaller absolute step.
+ float threshold=max(0.08*(0.5+c),0.035);
+ float acrossY=abs(u-c)+abs(d-c);       // differs above/below -> horizontal line
+ float acrossX=abs(l-c)+abs(r-c);       // differs left/right -> vertical line
+ // Non-maximum suppression keeps the mask one pixel wide. Without it the
+ // upscaled edge spans 2-3 pixels, the blend then finds a same-coloured
+ // neighbour and nothing changes on screen.
+ float acrossYUp=abs(uu-u)+abs(c-u),acrossYDown=abs(c-d)+abs(dd-d);
+ float acrossXLeft=abs(ll-l)+abs(c-l),acrossXRight=abs(c-r)+abs(rr-r);
+ float horizontal=(acrossY>threshold&&acrossY>=acrossYUp&&acrossY>=acrossYDown)?1.0:0.0;
+ float vertical=(acrossX>threshold&&acrossX>=acrossXLeft&&acrossX>=acrossXRight)?1.0:0.0;
+ // Both directions are kept: a 45-degree staircase marks every pixel of the
+ // line in both bits, and the blend pass needs that run to measure coverage.
+ // Zeroing "crosses" here removed exactly the diagonal edges worth smoothing.
+ imageStore(edges,at,vec4(horizontal,vertical,0.0,1.0));
+}

@@ -1,0 +1,62 @@
+KIỂM TRA VÀ SỬA FG / UPSCALE — 24/10/2026
+
+Kết quả: đã tạo ThorNativeFG-quality-review.apk; chưa cài đè controller/runtime
+trên Thor, chưa đổi cài đặt game, chưa bật module hoặc khởi động lại thiết bị.
+APK SHA-256: 50DC3A5BB6F5DD1AA070E3C8ECF91E1010F29FDFDC599FFFACA97D95D1FABA90
+Bản này vẫn mang version 0.14-rc1, là bản kiểm chứng thử nghiệm.
+
+PHÁT HIỆN VÀ THAY ĐỔI
+1. FG dò đúng chuyển động +4/+8 pixel trong fixture nhưng bộ nhận diện cut
+   vẫn từ chối nội suy. Xác nhận 2 lỗi trong 30 kiểm thử của binary ban đầu.
+   Sửa bằng bằng chứng match hai chiều rất tốt trên >=85% block, sai số
+   match <0.015 và độ lệch tổng vector <1.5 pixel lưới. Vẫn giữ chặn đổi
+   histogram mạnh, motion vượt biên, warmup và holdoff sau cut.
+2. Bỏ ghi đè quyết định quality để lặp frame hiện tại thành cặp 2x. Frame
+   bị từ chối không chiếm thêm lượt xuất hình và không cộng thành FG.
+3. Pixel không tìm được chuyển động đáng tin quay về pixel hiện tại không
+   warp, thay vì dùng tọa độ warp của vector đang bị nghi ngờ.
+4. Đường mang tên SGSR2 trong layer cũ dùng history chung trên swapchain,
+   đổi ping-pong khi RECORD thay vì khi SUBMIT, và có thể thay/hủy engine
+   trong lúc command buffer khác còn tham chiếu. Không có depth, motion
+   vector từ renderer hoặc jitter. Đây không phải tích hợp temporal đầy đủ.
+   Thay đường này bằng Spatial 9-tap: kernel FastLanczos không lưu history,
+   clamp min/max vùng lân cận để chặn overshoot/undershoot, giữ alpha nguồn.
+   Engine thuộc từng command-buffer slot như đường SGSR1 sẵn có.
+5. GSR1 là mặc định cho cài đặt mới/giá trị không hợp lệ. Lựa chọn sgsr2 đã
+   lưu chuyển sang Spatial9; tên UI và telemetry phản ánh đúng thuật toán.
+   ID telemetry mới =4; runtime cũ ID=3 được báo riêng, không giả danh bản mới.
+   Neural và các tích hợp SGSR2 renderer/OptiScaler riêng không bị thay đổi.
+
+KIỂM CHỨNG
+Thiết bị thật: AYN Thor c2b670a0, Adreno 740, Vulkan 1.3.128.
+- Build APK thành công, shader qua spirv-val, chữ ký APK được xác minh.
+- GPU selftest cuối: 35/35 PASS (build/review-gpu-test.txt).
+- Java telemetry: 32/32 PASS (build/review-metrics-test.txt).
+- So sánh cooperative/serial trên 314 frame, gồm motion, cut, reset và kích
+  thước lẻ: flow/midpoint/quality/ảnh thật trùng bit (review-flow-compare.txt).
+- Benchmark FG 1920x1080: median 2.2381 ms, p95 2.2542 ms. Ban đầu median
+  2.2356 ms, p95 2.2545 ms. Không có bằng chứng nhanh hơn; chi phí tương đương.
+- Upscale 640x360->1920x1080: SGSR1 median 0.817 ms, Spatial9 0.816 ms,
+  10 mẫu sau 5 warmup. Đây là copy+upscale của cảnh tổng hợp, không phải FPS
+  trong game hay độ trễ tay cầm; không cộng các số này thành cam kết hiệu năng.
+- git diff --check sạch. Không reset các thay đổi có sẵn trước lần kiểm tra.
+
+CÁCH THỬ APK
+Lưu game và thoát hẳn giả lập trước khi cập nhật. Cài APK, chọn GSR1 hoặc 9-tap,
+bật FG theo cách hiện tại, mở lại game. 9-tap cần ảnh render thấp qua blit phù
+hợp; không tự hạ độ phân giải game. So cùng cảnh xoay camera, chữ HUD và cut.
+Nếu runtime cũ còn chạy, UI báo GSR2 thử nghiệm cũ; cần mở lại game.
+
+GIỚI HẠN
+Chưa cài/chạy APK mới trong game thực; chưa soak test, đo nhiệt/pin, input lag,
+so hình ảnh native-game hoặc chạy Vulkan synchronization validation cho layer.
+35 bài tổng hợp không chứng minh an toàn trên mọi queue/renderer/game. Optical
+flow từ ảnh vẫn có giới hạn ở occlusion, hạt, chữ và chuyển động vượt cửa sổ.
+Spatial9 không tích lũy chi tiết theo thời gian nên không thay thế temporal SR;
+chưa chứng minh đẹp hơn GSR1/Neural ở mọi nội dung. Mục tiêu bản này là sửa lỗi
+đã tái hiện và loại đường history không an toàn, không hứa chất lượng DLSS.
+
+Tài liệu chính thức SGSR2 (đã đối chiếu):
+https://github.com/SnapdragonGameStudios/snapdragon-gsr/blob/main/sgsr/v2/README.md
+Temporal chuẩn cần color, depth, velocity, jitter/camera và reset đúng thời điểm.
+Các báo cáo START-HERE/STATUS cũ là lịch sử; báo cáo này mô tả đúng APK nêu trên.

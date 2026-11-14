@@ -1,0 +1,13 @@
+﻿{
+    "schemaVersion":  1,
+    "packageName":  "com.thor.nativefg",
+    "channel":  "full",
+    "versionCode":  20,
+    "versionName":  "0.15.0",
+    "minSdk":  29,
+    "bytes":  1029800,
+    "sha256":  "16a7639c43767963889a0e1011fea93fed0a4fe9ffaa575c9be975c796a1ddd5",
+    "apkUrl":  "https://github.com/dodangquang/thor-native-fg/releases/download/thorfg-v0.15.0/ThorNativeFG-0.15.0.apk",
+    "notesVi":  "Ban phat hanh dau tien qua git: tu kiem tra cap nhat, xac minh SHA-256 + chu ky APK, kiem tra ban quyen offline, giao dien ThorQOL.",
+    "notesEn":  "First git-based release: in-app update check with SHA-256 + signature verification, offline licence check, ThorQOL-style UI."
+}

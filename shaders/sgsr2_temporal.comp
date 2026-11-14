@@ -1,0 +1,89 @@
+#version 450
+// Thor Native FG - Spatial9 (SGSR2-style) motion-compensated temporal pass.
+// Unlike taa.comp (no motion vectors available), this samples the same
+// bidirectional optical flow the frame generator already computes, so
+// history is reprojected to the right scene point instead of blended in
+// place. Flow is stored as a UV-space fraction, so it can be sampled
+// directly at this (output) resolution without any rescaling.
+layout(local_size_x=8,local_size_y=8) in;
+
+layout(binding=0) uniform sampler2D currentFrame;
+layout(binding=1) uniform sampler2D historyFrame;
+layout(binding=2) uniform sampler2D flowImage;
+layout(binding=3,rgba8) uniform writeonly image2D outputImage;
+
+layout(push_constant) uniform Params {
+    ivec2 size;
+    float blendFactor;
+    int firstFrame;
+} p;
+
+vec3 RGBToYCoCg(vec3 rgb) {
+    float Y  = dot(rgb, vec3( 0.25,  0.5,   0.25));
+    float Co = dot(rgb, vec3( 0.5,   0.0,  -0.5));
+    float Cg = dot(rgb, vec3(-0.25,  0.5,  -0.25));
+    return vec3(Y, Co, Cg);
+}
+
+vec3 YCoCgToRGB(vec3 ycocg) {
+    float Y = ycocg.x, Co = ycocg.y, Cg = ycocg.z;
+    float tmp = Y - Cg;
+    return vec3(tmp + Co, Y + Cg, tmp - Co);
+}
+
+void main() {
+    ivec2 at = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(at, p.size))) return;
+
+    vec3 currentColor = texelFetch(currentFrame, at, 0).rgb;
+
+    if (p.firstFrame != 0) {
+        imageStore(outputImage, at, vec4(currentColor, 1.0));
+        return;
+    }
+
+    vec2 uv = (vec2(at) + 0.5) / vec2(p.size);
+    // flow.xy is the forward (previous->current) displacement as a fraction
+    // of the frame, so the matching point in the previous frame is uv-flow.
+    vec2 motion = textureLod(flowImage, uv, 0.0).xy;
+    vec2 historyUV = uv - motion;
+    bool offscreen = any(lessThan(historyUV, vec2(0.0))) || any(greaterThan(historyUV, vec2(1.0)));
+    // The flow field is estimated on a coarse grid, so thin high-contrast
+    // features (text/HUD strokes a pixel or two wide) can get an unreliable
+    // vector and reproject to the wrong spot, flickering every frame. Check
+    // forward/backward agreement like the frame generator does and fall
+    // back to the un-reprojected current pixel when it disagrees.
+    vec2 reverse = textureLod(flowImage, historyUV, 0.0).zw;
+    bool reliable = length((motion + reverse) * vec2(p.size)) < 2.0;
+
+    vec3 historyColor = (offscreen || !reliable) ? currentColor : textureLod(historyFrame, historyUV, 0.0).rgb;
+
+    vec3 neighborMin = vec3(1e10), neighborMax = vec3(-1e10);
+    vec3 sum = vec3(0.0), sum2 = vec3(0.0);
+    for (int y = -1; y <= 1; y++) {
+        for (int x = -1; x <= 1; x++) {
+            ivec2 at2 = clamp(at + ivec2(x, y), ivec2(0), p.size - 1);
+            vec3 neighbor = RGBToYCoCg(texelFetch(currentFrame, at2, 0).rgb);
+            neighborMin = min(neighborMin, neighbor);
+            neighborMax = max(neighborMax, neighbor);
+            sum += neighbor;
+            sum2 += neighbor * neighbor;
+        }
+    }
+    vec3 mean = sum / 9.0;
+    vec3 variance = max(sum2 / 9.0 - mean * mean, vec3(0.0));
+    vec3 stddev = sqrt(variance);
+    float gamma = 1.25;
+    vec3 boxMin = max(mean - gamma * stddev, neighborMin);
+    vec3 boxMax = min(mean + gamma * stddev, neighborMax);
+
+    vec3 historyClamped = offscreen ? currentColor
+        : YCoCgToRGB(clamp(RGBToYCoCg(historyColor), boxMin, boxMax));
+
+    float colorDiff = length(currentColor - historyClamped);
+    float colorFactor = clamp(colorDiff * 4.0, 0.0, 1.0);
+    float adaptiveBlend = mix(p.blendFactor, 0.5, colorFactor);
+
+    vec3 finalColor = mix(historyClamped, currentColor, adaptiveBlend);
+    imageStore(outputImage, at, vec4(finalColor, 1.0));
+}

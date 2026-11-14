@@ -1,0 +1,9 @@
+﻿{
+    "schemaVersion":  1,
+    "packageName":  "com.thor.nativefg",
+    "keyId":  "thorfg-1",
+    "publicKeySpki":  "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA76TuUAf0XqPLcDcqXiFVfHZxYc71IUN9VGwR/16tkpoxt/ABv24kS5Gj+L+iivxoyaIhhdTJzRV2/Z9JTCW54SFNk/naLlAMYxFn369CtPI7uQun7egJIeCJtFHQxd+qxGuAFJlAosxKMa4qBi7ir6atNiA3iOJS0Bl3EvWfU2yUd0Uhz2ZIDvCAocUZziednzanU8nmbb3FCdaNV0dCuwaAuVEEU7t/FErTuhfrtZBWoEJnTd57r7+0ZbQh720JEXEVrtU2BeONAPZAPIkv8L/pKQLjaMA1VJCFvn6WG1kI1sjd6LkTA2BiJtddiWAv4QzK3iypXywUg9555YlQdQIDAQAB",
+    "shopUrl":  "https://ko-fi.com/thorqol/shop",
+    "enforce":  false,
+    "trialDays":  7
+}

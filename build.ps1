@@ -1,14 +1,26 @@
-param([string]$Sdk='E:/DevTools/Android/Sdk')
+param([string]$Sdk="")
+# Native tools write progress to stderr; keep that from becoming a terminating error.
+$PSNativeCommandUseErrorActionPreference=$false
 $ErrorActionPreference='Stop'
 $root=$PSScriptRoot
+if(-not $Sdk -or -not (Test-Path -LiteralPath $Sdk)){
+ if(Test-Path -LiteralPath 'E:/DevTools/Android/Sdk'){$Sdk='E:/DevTools/Android/Sdk'}
+ elseif(Test-Path -LiteralPath "$env:LOCALAPPDATA/Android/Sdk"){$Sdk="$env:LOCALAPPDATA/Android/Sdk"}
+ else{throw 'Android SDK not found'}
+}
 $ndk=Join-Path $Sdk 'ndk/27.3.13750724'
 $bin=Join-Path $ndk 'toolchains/llvm/prebuilt/windows-x86_64/bin'
 $shaderBin=Join-Path $ndk 'shader-tools/windows-x86_64'
 $jdk='E:/DevTools/Java/jdk-17.0.20.101-hotspot'
-if(-not(Test-Path -LiteralPath "$jdk/bin/javac.exe")){$jdk='C:/Program Files/Microsoft/jdk-17.0.20.101-hotspot'}
+if(-not(Test-Path -LiteralPath "$jdk/bin/javac.exe")){
+ if(Test-Path -LiteralPath 'C:/Program Files/Android/Android Studio/jbr/bin/javac.exe'){$jdk='C:/Program Files/Android/Android Studio/jbr'}
+ elseif(Test-Path -LiteralPath 'C:/Program Files/Microsoft/jdk-17.0.20.101-hotspot'){$jdk='C:/Program Files/Microsoft/jdk-17.0.20.101-hotspot'}
+}
 $env:JAVA_HOME=$jdk
-$bt=Join-Path $Sdk 'build-tools/35.0.0'
-$androidJar=Join-Path $Sdk 'platforms/android-34/android.jar'
+$bt=Join-Path $Sdk 'build-tools/36.0.0'
+if(-not(Test-Path -LiteralPath $bt)){$bt=Join-Path $Sdk 'build-tools/35.0.0'}
+$androidJar=Join-Path $Sdk 'platforms/android-35/android.jar'
+if(-not(Test-Path -LiteralPath $androidJar)){$androidJar=Join-Path $Sdk 'platforms/android-34/android.jar'}
 $build=Join-Path $root 'build'
 New-Item -ItemType Directory -Force -Path "$build/lib/arm64-v8a","$build/classes","$build/dex","$build/generated" | Out-Null
 function Check([string]$stage){if($LASTEXITCODE -ne 0){throw "$stage failed ($LASTEXITCODE)"}}
@@ -35,7 +47,7 @@ layout(push_constant) uniform Params { ivec2 outputSize; } p;
 [IO.File]::WriteAllText("$build/generated/upscale.comp",$prefix+"`n"+$shader,[Text.UTF8Encoding]::new($false))
 & "$root/scripts/prepare-neural-shaders.ps1" -Destination "$build/generated"
 $header='#pragma once' + "`n#include <cstdint>`n"
-foreach($name in @('analyze','quality','flow','flow_reference','interpolate','upscale','sgsr2','scene','neural0','neural1','neural2','neural3','neural4','neural5')){
+foreach($name in @('analyze','quality','flow','flow_reference','flow_refine','interpolate','interpolate2','fxaa','smaa','smaa_edge','smaa_blend','upscale','sgsr2','scene','neural0','neural1','neural2','neural3','neural4','neural5','taa','cas','sgsr2_temporal')){
  $src=if($name -eq 'neural5'){"$root/shaders/neural_resize.comp"}elseif($name -eq 'neural4'){"$root/shaders/neural_shuffle.comp"}elseif($name -eq 'upscale' -or $name -match '^neural[0-3]$'){"$build/generated/$name.comp"}elseif($name -eq 'flow_reference'){"$root/tests/reference/flow_serial.comp"}else{"$root/shaders/$name.comp"}
  & "$shaderBin/glslc.exe" --target-env=vulkan1.1 -I "$root/shaders" -O $src -o "$build/$name.spv";Check "glslc $name"
  & "$shaderBin/spirv-val.exe" --target-env vulkan1.1 "$build/$name.spv";Check "spirv-val $name"
@@ -74,6 +86,7 @@ $runtimePackage="com.thor.nativefg.runtime.v$runtimeHash"
 New-Item -ItemType Directory -Force -Path "$build/runtime/lib/arm64-v8a","$build/assets","$build/generated/java/com/thor/nativefg" | Out-Null
 foreach($assets in @("$build/runtime/assets","$build/assets")){
  New-Item -ItemType Directory -Force -Path "$assets/legal/Anime4K","$assets/legal/SGSR1","$assets/legal/SGSR2" | Out-Null
+if(Test-Path -LiteralPath "$root/assets/thorfg-license.json"){Copy-Item -LiteralPath "$root/assets/thorfg-license.json" -Destination $assets -Force}
  Copy-Item -LiteralPath "$root/third_party/anime4k/LICENSE.txt","$root/third_party/anime4k/Anime4K_Upscale_CNN_x2_S.glsl","$root/shaders/neural_shuffle.comp","$root/shaders/neural_resize.comp","$root/shaders/neural_bounds.glsl" -Destination "$assets/legal/Anime4K" -Force
  Copy-Item -LiteralPath "$root/third_party/Snapdragon-GSR-LICENSE.txt","$root/third_party/sgsr1_shader_mobile.frag" -Destination "$assets/legal/SGSR1" -Force
  Copy-Item -LiteralPath "$root/third_party/sgsr2/LICENSE","$root/third_party/sgsr2/PINNED.txt","$root/third_party/sgsr2/sgsr2_convert.fs","$root/third_party/sgsr2/sgsr2_upscale.fs","$root/shaders/sgsr2.comp" -Destination "$assets/legal/SGSR2" -Force
@@ -94,7 +107,9 @@ $controllerManifest=(Get-Content -LiteralPath "$root/AndroidManifest.xml" -Raw).
 [IO.File]::WriteAllText("$build/AndroidManifest.xml",$controllerManifest,[Text.UTF8Encoding]::new($false))
 $sources=@(Get-ChildItem -LiteralPath "$root/src" -Recurse -Filter '*.java' | ForEach-Object FullName)
 $sources+="$build/generated/java/com/thor/nativefg/RuntimeBuild.java"
-& "$jdk/bin/javac.exe" -encoding UTF-8 -source 8 -target 8 -bootclasspath "$androidJar;$bt/core-lambda-stubs.jar" -d "$build/classes" @sources;Check 'javac'
+$previousErrorAction=$ErrorActionPreference;$ErrorActionPreference='Continue';
+& "$jdk/bin/javac.exe" -encoding UTF-8 -source 8 -target 8 -bootclasspath "$androidJar;$bt/core-lambda-stubs.jar" -d "$build/classes" @sources;
+$javacExit=$LASTEXITCODE;$ErrorActionPreference=$previousErrorAction;if($javacExit -ne 0){throw "javac failed: $javacExit"}
 $classes=@(Get-ChildItem -LiteralPath "$build/classes" -Recurse -Filter '*.class' | ForEach-Object FullName)
 & "$bt/d8.bat" --lib $androidJar --min-api 29 --output "$build/dex" @classes;Check 'd8'
 & "$bt/aapt.exe" package -f -M "$build/AndroidManifest.xml" -A "$build/assets" -I $androidJar -F "$build/unsigned.apk";Check 'aapt'

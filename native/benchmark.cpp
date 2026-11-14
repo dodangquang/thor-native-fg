@@ -26,6 +26,10 @@ int main(int argc,char** argv){
   Api a;a.load(device,vkGetDeviceProcAddr);VkQueue queue{};a.GetDeviceQueue(device,family,0,&queue);
   {
    bool serial=argc>3&&!std::strcmp(argv[3],"serial"),toggle=argc>3&&!std::strcmp(argv[3],"compare_toggle"),compare=argc>3&&!std::strcmp(argv[3],"compare");compare|=toggle;
+   // Optional fourth argument: produce two generated midpoints from one flow
+   // pass, the3x shape, so the marginal cost of the second phase is measurable.
+   bool triple=false;for(int i=3;i<argc;i++)if(!std::strcmp(argv[i],"triple"))triple=true;
+   if(compare)triple=false;
    Engine engine;engine.init(a,memory,{width,height},{width,height},!serial);
    Engine reference;if(compare)reference.init(a,memory,{width,height},{width,height},false);
    auto source=engine.createImage({width,height},VK_FORMAT_R8G8B8A8_UNORM,VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
@@ -50,7 +54,9 @@ int main(int argc,char** argv){
     struct{int32_t size[2];float time;int32_t cut;} push{{int32_t(width),int32_t(height)},float(iteration)/30,0};
     if(compare){int phase=(iteration/20)%4;push.time=phase==0?0:phase==2?float(iteration)*.2f:float(iteration)/30;push.cut=phase==3?iteration%2:0;if(iteration%57==0)engine.hasHistory=reference.hasHistory=false;}
     a.CmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,scene.pipeline);a.CmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,scene.layout,0,1,&set,0,nullptr);a.CmdPushConstants(cmd,scene.layout,VK_SHADER_STAGE_COMPUTE_BIT,0,16,&push);a.CmdDispatch(cmd,(width+7)/8,(height+7)/8,1);
-    a.CmdResetQueryPool(cmd,timing.pool,0,7);engine.record(cmd,source.image,VK_IMAGE_LAYOUT_GENERAL,false,&timing);
+    a.CmdResetQueryPool(cmd,timing.pool,0,7);
+    if(triple){const float phases[2]={1.0f/3.0f,2.0f/3.0f};engine.recordMulti(cmd,source.image,VK_IMAGE_LAYOUT_GENERAL,false,&timing,phases,2);}
+    else engine.record(cmd,source.image,VK_IMAGE_LAYOUT_GENERAL,false,&timing);
     if(compare){
      reference.record(cmd,source.image,VK_IMAGE_LAYOUT_GENERAL,false);
      auto copy=[&](const Image& image,VkDeviceSize offset){engine.barrier(cmd,image.image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_MEMORY_WRITE_BIT,VK_ACCESS_TRANSFER_READ_BIT);VkBufferImageCopy region{};region.bufferOffset=offset;region.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};region.imageExtent={image.size.width,image.size.height,1};a.CmdCopyImageToBuffer(cmd,image.image,VK_IMAGE_LAYOUT_GENERAL,readback,1,&region);};
@@ -68,7 +74,7 @@ int main(int argc,char** argv){
     if(measure){for(int stage=0;stage<6;stage++)samples[stage].push_back(double((ticks[stage+1]-ticks[stage])&mask)*properties.limits.timestampPeriod/1e6);samples[6].push_back(double((ticks[6]-ticks[0])&mask)*properties.limits.timestampPeriod/1e6);recorded++;}iteration++;
    }
    const char* names[]={"copy_reset","analyze","flow","quality","interpolate","finish_copies","total"};
-   printf("GPU_BENCH gpu=%s width=%u height=%u samples=%d warmup_frames=%d filter=0 flow=%s compare=%d\n",properties.deviceName,width,height,recorded,iteration-recorded,toggle?"alternating":serial?"serial":"cooperative",compare);
+   printf("GPU_BENCH gpu=%s width=%u height=%u samples=%d warmup_frames=%d filter=0 flow=%s compare=%d phases=%d\n",properties.deviceName,width,height,recorded,iteration-recorded,toggle?"alternating":serial?"serial":"cooperative",compare,triple?2:1);
    for(int stage=0;stage<7;stage++){auto& values=samples[stage];std::sort(values.begin(),values.end());printf("GPU_STAGE name=%s median_ms=%.4f p95_ms=%.4f min_ms=%.4f max_ms=%.4f\n",names[stage],values[values.size()/2],values[size_t(values.size()*.95)],values.front(),values.back());}
    if(compare)printf("COMPARE PASS frames=%d flow=bit_exact midpoint=bit_exact quality=bit_exact real=bit_exact_source fixture=stable_motion_fast_motion_cuts_history_reset\n",compared);
    if(pixels)a.UnmapMemory(device,readbackMemory);if(readback)a.DestroyBuffer(device,readback,nullptr);if(readbackMemory)a.FreeMemory(device,readbackMemory,nullptr);

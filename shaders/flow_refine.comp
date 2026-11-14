@@ -1,0 +1,64 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Fine refinement of the coarse block flow (hierarchical stage 2). Each fine
+// block seeds its search from the bilinearly sampled coarse vector and only
+// searches a small window around it, so motion is captured at four times the
+// resolution of the coarse pass without paying a full search everywhere.
+// Writes the fine flow in the same normalisation the interpolator expects
+// (units of fineGrid*8), with one workgroup per fine block.
+layout(local_size_x=8,local_size_y=8) in;
+layout(binding=0) uniform sampler2D prevFrame;
+layout(binding=1) uniform sampler2D currFrame;
+layout(binding=2) uniform sampler2D coarseFlow;
+layout(binding=3,rgba32f) uniform writeonly image2D flowImage;
+layout(push_constant) uniform Params { ivec2 inputSize; ivec2 gridSize; float phase; int history; } p; // gridSize = COARSE grid
+float delta(vec3 a,vec3 b){vec3 d=abs(a-b);return dot(d,vec3(0.299,0.587,0.114));}
+shared vec4 prevPatch[16],currPatch[16];
+shared float fCosts[64],bCosts[64];shared uint fIdx[64],bIdx[64];
+void main(){
+ ivec2 fineGrid=p.gridSize*2;
+ ivec2 at=ivec2(gl_WorkGroupID.xy);if(any(greaterThanEqual(at,fineGrid)))return;
+ uint lane=gl_LocalInvocationIndex;
+ vec2 fullFine=vec2(fineGrid*8),center=(vec2(at*8)+4.0)/fullFine;
+ vec2 fineUV=(vec2(at)+0.5)/vec2(fineGrid);
+ vec4 seed=textureLod(coarseFlow,fineUV,0);
+ if(lane<16u){
+  ivec2 so=ivec2(int(lane)%4,int(lane)/4)*2-3;
+  vec2 uv=center+vec2(so)/fullFine;
+  prevPatch[lane]=textureLod(prevFrame,uv,0);
+  currPatch[lane]=textureLod(currFrame,uv,0);
+ }
+ barrier();
+ // 121 candidates: the coarse seed +/- 5 fine units, enough to recover the
+ // true motion from a blended boundary seed.
+ float fb=100.0,bb=100.0;uint fi=121u,bi=121u;
+ for(uint cand=lane;cand<121u;cand+=64u){
+  ivec2 o=ivec2(int(cand)%11-5,int(cand)/11-5);
+  vec2 fo=(seed.xy*2.0+vec2(o))/fullFine,bo=(seed.zw*2.0+vec2(o))/fullFine;
+  float fc=0.0,bc=0.0;int si=0;
+  for(int j=-3;j<=3;j+=2)for(int i=-3;i<=3;i+=2){
+   vec2 uv=center+vec2(i,j)/fullFine;
+   fc+=delta(prevPatch[si].rgb,textureLod(currFrame,uv+fo,0).rgb);
+   bc+=delta(currPatch[si].rgb,textureLod(prevFrame,uv+bo,0).rgb);
+   si++;
+  }
+  fc/=16.0;bc/=16.0;
+  // Periodic content ties many offsets at zero cost; prefer the seed itself so
+  // the fine pass never invents motion the coarse pass did not find.
+  fc+=0.000002*float(o.x*o.x+o.y*o.y);bc+=0.000002*float(o.x*o.x+o.y*o.y);
+  if(fc<fb){fb=fc;fi=cand;}if(bc<bb){bb=bc;bi=cand;}
+ }
+ fCosts[lane]=fb;bCosts[lane]=bb;fIdx[lane]=fi;bIdx[lane]=bi;
+ barrier();
+ for(uint stride=32u;stride>0u;stride/=2u){
+  if(lane<stride){uint other=lane+stride;
+   if(fCosts[other]<fCosts[lane]||(fCosts[other]==fCosts[lane]&&fIdx[other]<fIdx[lane])){fCosts[lane]=fCosts[other];fIdx[lane]=fIdx[other];}
+   if(bCosts[other]<bCosts[lane]||(bCosts[other]==bCosts[lane]&&bIdx[other]<bIdx[lane])){bCosts[lane]=bCosts[other];bIdx[lane]=bIdx[other];}
+  }
+  barrier();
+ }
+ if(lane!=0u)return;
+ ivec2 fo=ivec2(int(fIdx[0])%11-5,int(fIdx[0])/11-5),bo=ivec2(int(bIdx[0])%11-5,int(bIdx[0])/11-5);
+ vec2 fv=(seed.xy*2.0+vec2(fo))/fullFine,bv=(seed.zw*2.0+vec2(bo))/fullFine;
+ imageStore(flowImage,at,vec4(fv,bv));
+}

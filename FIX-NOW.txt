@@ -1,0 +1,159 @@
+═══════════════════════════════════════════════════════════════════════════════
+  THOR NATIVE FG - FIX LAG + FLICK NOW!
+═══════════════════════════════════════════════════════════════════════════════
+
+Problem: Game bị chậm + flick
+Cause: TAA/CAS overhead quá lớn hoặc blend factor sai
+Solution: 3 bước fix nhanh
+
+═══════════════════════════════════════════════════════════════════════════════
+NGAY LẬP TỨC - TRY 3 STEPS
+═══════════════════════════════════════════════════════════════════════════════
+
+STEP 1: Identify Issue
+──────────────────────────────────────────────────────────────────────────────
+Trong desktop PowerShell:
+
+cd C:\Users\dodan\thor-native-fg
+.\DIAGNOSE-DLSS.bat
+
+→ Script sẽ collect logs (30 giây)
+→ Xem output để hiểu problem:
+   • FPS 30-45? → LAG issue (CAS overhead)
+   • Flick/stutter? → FLICK issue (TAA blend)
+
+STEP 2: Apply Quick Fix
+──────────────────────────────────────────────────────────────────────────────
+Chọn 1 trong 3 option:
+
+OPTION A - FIX LAG (nếu thấy FPS thấp):
+  Disable CAS để giảm overhead
+  
+  Mở: native/engine.cpp
+  Tìm: bool enableCAS = true;
+  Sửa: bool enableCAS = false;
+
+OPTION B - FIX FLICK (nếu thấy flickering):
+  Adjust TAA blend để stable hơn
+  
+  Mở: native/engine.cpp
+  Tìm: float taaBlendFactor = 0.08f;
+  Sửa: float taaBlendFactor = 0.12f;
+
+OPTION C - FIX BOTH (Nuclear option):
+  Disable both TAA + CAS
+  
+  Mở: native/engine.cpp
+  Tìm: bool enableTAA = true;
+       bool enableCAS = true;
+  Sửa: bool enableTAA = false;
+       bool enableCAS = false;
+
+STEP 3: Rebuild & Install
+──────────────────────────────────────────────────────────────────────────────
+Trong desktop PowerShell:
+
+# Rebuild
+python toolchain\build.py --sdk toolchain\sdk
+
+# Install
+adb install -r ThorNativeFG-debug.apk
+
+# Play game, test nhanh
+
+═══════════════════════════════════════════════════════════════════════════════
+NHANH HƠN - USE AUTOMATION SCRIPT
+═══════════════════════════════════════════════════════════════════════════════
+
+Hoặc dùng PowerShell script (auto edit code):
+
+powershell -File QUICK-FIX-DLSS.ps1
+
+→ Menu sẽ hiện, pick fix
+→ Script tự động sửa code
+→ Làm theo instructions để rebuild
+
+═══════════════════════════════════════════════════════════════════════════════
+NẾU KHÔNG SURE - JUST ROLLBACK
+═══════════════════════════════════════════════════════════════════════════════
+
+Quay lại version cũ (chắc chắn hoạt động):
+
+adb install -r ThorNativeFG-FG-stability-test.apk
+
+Rồi sau test bản cũ, quyết định rebuild DLSS version với fit parameters
+
+═══════════════════════════════════════════════════════════════════════════════
+PARAMETER GUIDE
+═══════════════════════════════════════════════════════════════════════════════
+
+TAA Blend Factor (taaBlendFactor):
+  0.05  → Very responsive, but may flicker
+  0.08  → Balanced (default)
+  0.12  → Very stable, may ghosting
+  Use: Increase if flicker, decrease if ghosting
+
+CAS Sharpness (casSharpness):
+  0.0   → No sharpening (disable)
+  0.4   → Light sharpening
+  0.6   → Balanced (default)
+  0.8   → Heavy sharpening, risk halos
+  Use: Decrease if lag, increase if too soft
+
+Enable Flags:
+  enableTAA: true/false   (Temporal Anti-Aliasing)
+  enableCAS: true/false   (Contrast Adaptive Sharpening)
+  Use: Disable either if overhead too high
+
+═══════════════════════════════════════════════════════════════════════════════
+DETAILED GUIDE
+═══════════════════════════════════════════════════════════════════════════════
+
+Xem file: FIX-DLSS-LAG-FLICK.md
+
+Có:
+  • Full troubleshooting guide
+  • Scenario-based fixes
+  • Parameter tuning reference
+  • Expected performance metrics
+  • Common issues & solutions
+
+═══════════════════════════════════════════════════════════════════════════════
+MONITOR PERFORMANCE
+═══════════════════════════════════════════════════════════════════════════════
+
+Sau khi rebuild + install, check logs:
+
+adb logcat -s ThorNativeFG:V
+
+Look for:
+  FPS: 60      → Good
+  FPS: 45      → Heavy load
+  FPS: 30      → Too heavy (need to disable CAS/TAA)
+  
+  flick/stutter → TAA blend too low
+  ghosting      → TAA blend too high
+
+═══════════════════════════════════════════════════════════════════════════════
+SUMMARY
+═══════════════════════════════════════════════════════════════════════════════
+
+Lag + Flick thường là:
+  ✓ Overhead cao (CAS) + TAA blend không match
+
+Quick fixes (priority):
+  1. Disable CAS (if lag)
+  2. Adjust TAA blend (if flick)
+  3. Disable TAA (if both)
+  4. Rollback (if nothing works)
+
+Expected result after fix:
+  ✓ FPS: 60 stable
+  ✓ No flicker
+  ✓ Image quality acceptable (trade-off with performance)
+
+═══════════════════════════════════════════════════════════════════════════════
+
+👉 START HERE: QUICK-FIX-DLSS.ps1 (automatic) or FIX-DLSS-LAG-FLICK.md (manual)
+
+Good luck! 🚀

@@ -1,0 +1,53 @@
+THỬ FXAA / ĐÁNH GIÁ MSAA — 25/10/2026
+
+APK: ThorNativeFG-FXAA-experimental.apk, vẫn mang version 0.14-rc1.
+SHA256: E2AEAEE556121C6189A1C7C759CA39D363A361D4EFAB13BCF8420EEBF41A11F3
+Chưa cài đè app, chưa thay setting game hoặc module trên Thor.
+
+FXAA
+- Có checkbox trên màn hình chính: FXAA sau upscale · thử nghiệm.
+- Mặc định tắt; lưu lựa chọn sau khi lệnh setprop thành công. Khi lỗi UI trả
+  lại lựa chọn đã lưu. Cấu hình tự động đồng bộ lại property khi kích hoạt.
+- Chạy sau GSR1 / Spatial9 / Neural, trước FG nếu frame có đường SR của Thor.
+- Không chạy khi SR tắt hoặc khi game không đi qua blit upscale phù hợp.
+- Giữ alpha từng pixel; khi tắt không cấp ảnh/pipeline/descriptor AA riêng.
+- Đổi lựa chọn rồi lưu và thoát/mở lại game để các command buffer áp dụng
+  đồng nhất. Không cam kết chuyển tức thì trên command buffer đã ghi sẵn.
+- Checkbox là lựa chọn yêu cầu, không phải bằng chứng AA đang chạy. Log
+  SR_PIPELINE có fxaa=1 cho biết pipeline đã tạo; gameplay vẫn cần kiểm tra.
+
+KIỂM THỬ
+- Build thành công, shaders qua spirv-val, chữ ký APK xác minh.
+- GPU thật Adreno 740 trên AYN Thor: 50/50 checks PASS.
+- Với cả 3 model: vùng phẳng không đổi; alpha chính xác; mép chéo có tác động;
+  chọn đúng output; tắt trả đúng ảnh SR không AA và không cấp buffer AA.
+- Upscale 640x360->1920x1080, 10 mẫu sau 5 warmup:
+  Spatial9 tắt FXAA: median 0.816 ms; bật: 1.611 ms (thêm khoảng 0.795 ms).
+  Chỉ copy+upscale+AA, không gồm present/game/input latency.
+- So với ground truth đường chéo lấy 8x8 mẫu/pixel, MAE RGB thang 0..255:
+  GSR1:    không AA 0.232571 -> FXAA 0.271690
+  Spatial9: không AA 0.332670 -> FXAA 0.338231
+  Neural:  không AA 0.218777 -> FXAA 0.234485
+  Sai số tăng trong fixture này. Không xem test PASS là bằng chứng chất lượng
+  tốt hơn: PASS xác minh xử lý dữ liệu và bật/tắt, không xác minh đẹp hơn.
+  Giữ mặc định OFF; cần so mắt trong game, nhất là chữ HUD và nét mảnh.
+- Log: build/aa-gpu-test.txt; build/aa-build.log.
+
+MSAA
+Chưa triển khai và không có công tắc MSAA giả. Layer hiện nhận ảnh màu
+single-sample đã render xong. MSAA thật cần sửa graphics pipeline, color/depth
+attachments và resolve lúc renderer dựng hình. Chỉ đổi sample count của ảnh
+hậu kỳ không tạo thêm coverage hình học và có thể làm lệnh Vulkan không hợp lệ.
+Muốn thử MSAA phải dùng tùy chọn game/giả lập hoặc tích hợp vào renderer cụ thể.
+Không bật ép 4x MSAA Android vì không thay thế MSAA cho đường Vulkan này.
+
+GIỚI HẠN
+Chưa thử UI trên app đã cài, chưa chơi game/đo nhiệt/pin hoặc validation layer.
+Không có so sánh MSAA GPU thực; không tuyên bố MSAA kém/hơn FXAA trên Thor.
+FXAA chạy sau ảnh đã ghép HUD nên có thể làm chữ mềm. Tắt để so cùng cảnh.
+Bộ FXAA là implementation directional compact của Thor, không phải nguyên bản
+FXAA 3.11 preset Quality hay bộ tái tạo temporal.
+
+Nguồn chính thức:
+https://developer.download.nvidia.com/assets/gamedev/files/sdk/11/FXAA_WhitePaper.pdf
+https://docs.vulkan.org/tutorial/latest/10_Multisampling.html
