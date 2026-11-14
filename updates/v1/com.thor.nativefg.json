@@ -6,8 +6,8 @@
     "versionName":  "0.15.0",
     "minSdk":  29,
     "bytes":  1029800,
-    "sha256":  "0f4520ea985dd32677120278a9d27d67abaf55e891044ab04968ec4b60af88ed",
+    "sha256":  "1e87c46049830ae7e8606caed689e9d758fd7ae05ec52ec554e924dc2e1a6ce2",
     "apkUrl":  "https://github.com/dodangquang/thor-native-fg/releases/download/thorfg-v0.15.0/ThorNativeFG-0.15.0.apk",
-    "notesVi":  "Giao dien ThorQOL (Viet Hoa PC / Emu Game Store): nen teal, the toi, chu lime, tieu de in hoa nghieng, footer huong dan. Cap nhat qua git + ban quyen offline.",
-    "notesEn":  "ThorQOL look: teal page, dark cards, lime accents, bold uppercase titles, footer hints. Git updates + offline licence."
+    "notesVi":  "Sua thu tu header: logo THOR/FG + wordmark THORQOL nam tren the noi dung nhu family.",
+    "notesEn":  "Header order fixed: THOR/FG logo tile and THORQOL wordmark now sit above the content card, as in the family."
 }

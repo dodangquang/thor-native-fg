@@ -20,7 +20,7 @@ public class MainActivity extends Activity {
     // ThorQOL palette: navy background, lime accent, cyan glow.
     // Palette sampled from the ThorQOL apps (Việt Hóa PC / Emu Game Store).
     static final int C_BG=0xFF182E3A,C_CARD=0xFF211F2F,C_INNER=0xFF364049,C_STROKE=0xFF3E4652,
-        C_ACCENT=0xFFE7F361,C_GLOW=0xFF35D3C0,C_TEXT=0xFFF4F7F8,C_TEXT2=0xFFB9C4CC,C_MUTED=0xFF8FA0AB,C_RED=0xFFE2453C;
+        C_ACCENT=0xFFE7F361,C_GLOW=0xFF35D3C0,C_CREAM=0xFFEFE6D2,C_TEXT=0xFFF4F7F8,C_TEXT2=0xFFB9C4CC,C_MUTED=0xFF8FA0AB,C_RED=0xFFE2453C;
     private TextView status;
     private Button masterBtn,modeGsr2Btn,modeNeuralBtn,modeGsr1Btn,modeFgOnlyBtn;
     private Spinner packages,srModels;
@@ -45,13 +45,24 @@ public class MainActivity extends Activity {
         super.onCreate(state);
         license=new License(this);
         updates=new AppUpdates(this,()->runOnUiThread(this::refreshUpdateRow));
-        LinearLayout page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);page.setPadding(dp(18),dp(14),dp(18),dp(18));page.setBackgroundColor(C_BG);
-        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.addView(page);setContentView(scroll);
-        LinearLayout content=card();page.addView(content);
+        // Root: sketch-pattern backdrop (like Emu Game Store) + scrollable content.
+        FrameLayout root=new FrameLayout(this);root.setBackgroundColor(C_BG);
+        root.addView(new BackdropView(this),new FrameLayout.LayoutParams(-1,-1));
+        LinearLayout page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);page.setPadding(dp(20),dp(14),dp(20),dp(20));
+        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.addView(page);root.addView(scroll,new FrameLayout.LayoutParams(-1,-1));
+        setContentView(root);
 
-        TextView title=text("THORQOL / THOR NATIVE FG",22);title.setTextColor(C_ACCENT);title.setTypeface(Typeface.create("sans-serif",Typeface.BOLD_ITALIC));title.setLetterSpacing(0.02f);content.addView(title);
-        TextView sub=text("BÙ KHUNG HÌNH · KHỬ RĂNG CƯA · AYN THOR",12);sub.setTextColor(C_TEXT);sub.setTypeface(Typeface.DEFAULT_BOLD);sub.setLetterSpacing(0.04f);content.addView(sub);
-        versionLabel=text("",12);versionLabel.setTextColor(C_MUTED);content.addView(versionLabel);
+        // Header bar: logo tile + wordmark on the left, package info on the right.
+        LinearLayout header=new LinearLayout(this);header.setOrientation(LinearLayout.HORIZONTAL);header.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams headerLp=new LinearLayout.LayoutParams(-1,-2);headerLp.setMargins(0,0,0,dp(12));page.addView(header,headerLp);
+        header.addView(logo());
+        LinearLayout wordmark=new LinearLayout(this);wordmark.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams wordLp=new LinearLayout.LayoutParams(0,-2,1f);wordLp.setMargins(dp(14),0,dp(10),0);header.addView(wordmark,wordLp);
+        TextView title=text("THORQOL",22);title.setTextColor(C_ACCENT);title.setTypeface(Typeface.create("sans-serif",Typeface.BOLD_ITALIC));title.setLetterSpacing(0.02f);wordmark.addView(title);
+        TextView sub=text("THOR NATIVE FG · AYN THOR",13);sub.setTextColor(C_TEXT);sub.setTypeface(Typeface.DEFAULT_BOLD);sub.setLetterSpacing(0.08f);wordmark.addView(sub);
+        versionLabel=text("",11);versionLabel.setTextColor(C_MUTED);versionLabel.setGravity(Gravity.END);header.addView(versionLabel);
+
+        LinearLayout content=card();page.addView(content);
         try{
             PackageInfo info=getPackageManager().getPackageInfo(getPackageName(),0);
             long code=Build.VERSION.SDK_INT>=28?info.getLongVersionCode():info.versionCode;
@@ -195,7 +206,7 @@ public class MainActivity extends Activity {
         button(advanced,"Chạy cảnh mẫu AA + FG",()->startActivity(new Intent(this,DemoActivity.class)));
 
         String previous=AutoMode.preferences(this).getString("selected_package","");for(int i=0;i<ids.size();i++)if(ids.get(i).equals(previous)){packages.setSelection(i);break;}
-        content.addView(footerHint());
+        page.addView(footerBar());
         refreshUiState();
         AppUpdates.autoCheck(this);
         if(getIntent().getBooleanExtra("demo",false)){Intent demo=new Intent(this,DemoActivity.class);demo.putExtra("mode",getIntent().getIntExtra("mode",2));startActivity(demo);}
@@ -229,14 +240,19 @@ public class MainActivity extends Activity {
     private void addWeighted(LinearLayout row,View child,int rightMargin){
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(44),1f);lp.setMargins(0,0,rightMargin,0);row.addView(child,lp);
     }
-    private void stylePill(Button btn,boolean active){
+    private void stylePill(Button btn,boolean active){stylePill(btn,active,false);}
+    /** Cream chip by default, teal when selected (red for the destructive chip). */
+    private void stylePill(Button btn,boolean active,boolean danger){
         GradientDrawable bg=new GradientDrawable();
-        bg.setColor(active?C_ACCENT:C_CARD);
-        bg.setCornerRadius(dp(8));
-        bg.setStroke(dp(1),active?C_ACCENT:C_STROKE);
+        int fill=active?(danger?C_RED:C_GLOW):C_CREAM;
+        bg.setColor(fill);
+        bg.setCornerRadius(dp(10));
+        bg.setStroke(dp(1),active?fill:0x33FFFFFF);
         btn.setBackground(bg);
-        btn.setTextColor(active?C_CARD:C_TEXT);
-        btn.setTypeface(active?Typeface.DEFAULT_BOLD:Typeface.DEFAULT);
+        btn.setTextColor(active&&danger?0xFFFFFFFF:0xFF1A2430);
+        btn.setAllCaps(true);
+        btn.setLetterSpacing(0.05f);
+        btn.setTypeface(Typeface.DEFAULT_BOLD);
     }
     private void refreshUiState(){
         syncingAa=true;fxaaToggle.setChecked(AutoMode.fxaa(this));taaToggle.setChecked(AutoMode.taa(this));smaaToggle.setChecked(AutoMode.smaa(this));syncingAa=false;
@@ -253,7 +269,7 @@ public class MainActivity extends Activity {
         masterBtn.setText(on?"⏹ ĐANG BẬT (FG 120Hz + "+aaLabelText(aa)+") · CHẠM ĐỂ TẮT":"⚡ 1 CHẠM: BẬT NGAY (FG 120Hz + "+aaLabelText(aa)+" + FPS)");
         stylePill(modeGsr2Btn,"smaa".equals(aa));
         stylePill(modeNeuralBtn,"fxaa".equals(aa));
-        stylePill(modeGsr1Btn,"off".equals(aa));
+        stylePill(modeGsr1Btn,"off".equals(aa),true);
         stylePill(modeFgOnlyBtn,false);
         syncAutoSwitch();
         syncingSr=true;upscale.setChecked(sr);syncingSr=false;
@@ -380,11 +396,58 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(12));box.setLayoutParams(lp);
         return box;
     }
+    /** Lime logo tile with the app initials, drawn without any res/ drawable. */
+    private View logo(){
+        LinearLayout tile=new LinearLayout(this);tile.setOrientation(LinearLayout.VERTICAL);tile.setGravity(Gravity.CENTER);
+        GradientDrawable bg=new GradientDrawable();bg.setColor(C_ACCENT);bg.setCornerRadius(dp(10));
+        tile.setBackground(bg);
+        tile.setLayoutParams(new LinearLayout.LayoutParams(dp(58),dp(58)));
+        TextView top=new TextView(this);top.setText("THOR");top.setTextSize(10);top.setTypeface(Typeface.DEFAULT_BOLD);
+        top.setTextColor(0xFF1A2430);top.setLetterSpacing(0.08f);top.setGravity(Gravity.CENTER);
+        TextView mid=new TextView(this);mid.setText("FG");mid.setTextSize(20);mid.setTypeface(Typeface.create("sans-serif",Typeface.BOLD_ITALIC));
+        mid.setTextColor(0xFF1A2430);mid.setGravity(Gravity.CENTER);
+        TextView low=new TextView(this);low.setText("1 CHẠM");low.setTextSize(8);low.setTypeface(Typeface.DEFAULT_BOLD);
+        low.setTextColor(0xFF1A2430);low.setLetterSpacing(0.06f);low.setGravity(Gravity.CENTER);
+        tile.addView(top);tile.addView(mid);tile.addView(low);
+        return tile;
+    }
+    /** Diagonal sketch grid like the Emu Game Store backdrop, drawn on the fly. */
+    private final class BackdropView extends View{
+        private final android.graphics.Paint line=new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.Paint accent=new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        BackdropView(Context context){
+            super(context);
+            line.setColor(0x1FFFFFFF);line.setStrokeWidth(dp(1));
+            accent.setColor(0x22E7F361);accent.setStrokeWidth(dp(2));
+        }
+        @Override protected void onDraw(android.graphics.Canvas canvas){
+            int step=dp(46);
+            for(int x=-getHeight();x<getWidth();x+=step)canvas.drawLine(x,0,x+getHeight(),getHeight(),line);
+            canvas.drawLine(0,getHeight()*0.22f,getWidth(),getHeight()*0.44f,accent);
+            canvas.drawLine(0,getHeight()*0.78f,getWidth(),getHeight()*0.56f,accent);
+            super.onDraw(canvas);
+        }
+    }
     private TextView sectionHeader(String label){
         TextView view=new TextView(this);view.setText(label.toUpperCase(Locale.ROOT));view.setTextSize(15);
         view.setTextColor(C_TEXT);view.setTypeface(Typeface.DEFAULT_BOLD);
         view.setLetterSpacing(0.08f);view.setPadding(0,dp(14),0,dp(6));
         return view;
+    }
+    /** Dark footer strip: app tag on the left, control hints on the right. */
+    private View footerBar(){
+        LinearLayout bar=new LinearLayout(this);bar.setOrientation(LinearLayout.HORIZONTAL);bar.setGravity(Gravity.CENTER_VERTICAL);
+        GradientDrawable bg=new GradientDrawable();bg.setColor(0xFF13232C);bg.setCornerRadius(dp(10));
+        bar.setBackground(bg);int pad=dp(12);bar.setPadding(pad,dp(9),pad,dp(9));
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,dp(6),0,0);bar.setLayoutParams(lp);
+        TextView left=new TextView(this);left.setText("THOR NATIVE FG / VULKAN LAYER");
+        left.setTextSize(10);left.setTextColor(C_MUTED);left.setTypeface(Typeface.DEFAULT_BOLD);left.setLetterSpacing(0.08f);
+        TextView right=new TextView(this);right.setText("1 CHẠM BẬT · CHẠM PILL ĐỔI AA");
+        right.setTextSize(10);right.setTextColor(C_TEXT2);right.setTypeface(Typeface.DEFAULT_BOLD);right.setLetterSpacing(0.06f);
+        right.setGravity(Gravity.END);
+        bar.addView(left,new LinearLayout.LayoutParams(0,-2,1f));
+        bar.addView(right);
+        return bar;
     }
     private TextView footerHint(){
         TextView view=new TextView(this);view.setText("D-pad / cần trái: di chuyển · A: chọn · B: quay lại");
