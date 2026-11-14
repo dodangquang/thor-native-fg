@@ -6,8 +6,8 @@
     "versionName":  "0.15.0",
     "minSdk":  29,
     "bytes":  1029800,
-    "sha256":  "1e87c46049830ae7e8606caed689e9d758fd7ae05ec52ec554e924dc2e1a6ce2",
+    "sha256":  "4c3124edb73144de4c11759ce8691d638e52c838a3c914805281a97da3adf346",
     "apkUrl":  "https://github.com/dodangquang/thor-native-fg/releases/download/thorfg-v0.15.0/ThorNativeFG-0.15.0.apk",
-    "notesVi":  "Sua thu tu header: logo THOR/FG + wordmark THORQOL nam tren the noi dung nhu family.",
-    "notesEn":  "Header order fixed: THOR/FG logo tile and THORQOL wordmark now sit above the content card, as in the family."
+    "notesVi":  "Giao dien family ThorQOL, cap nhat qua git, ban quyen offline. Ban dau phat hanh.",
+    "notesEn":  "ThorQOL family UI, git-based updates, offline licence. First release."
 }
