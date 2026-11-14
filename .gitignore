@@ -19,3 +19,4 @@ assets/thorfg-license.json.bak
 codex-mem-install/
 shaders/*.spv.hpp
 *.spv
+/private/ssh/
